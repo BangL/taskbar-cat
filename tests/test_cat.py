@@ -2,7 +2,7 @@ import random
 
 import pytest
 
-from taskbar_cat.cat import HANG_DROP, SPRITE, Cat
+from taskbar_cat.cat import HANG_DROP, JUMP_MAX_SIDE, SPRITE, Cat
 from taskbar_cat.config import Config
 from taskbar_cat.needs import Mood, Needs
 from taskbar_cat.world import Output, Rect, Win, World
@@ -236,6 +236,24 @@ def test_shaking_slowly_is_forgotten():
     c.release(0, 0)
     run(c, w, 2)
     assert c.state != "vomit"
+
+
+def test_jump_to_the_next_monitor_stays_a_jump():
+    """Der Boden nebenan ist 1920 px breit; der Landepunkt muss trotzdem in Reichweite liegen."""
+    w = world()
+    far = next(p for p in w.platforms if p.owner == "floor:DP-4")
+    for seed in range(30):
+        c = make_cat()
+        c.rng = random.Random(seed)
+        c.spawn(w)
+        c.x = 1900
+        c._jump_to(far)
+        assert abs(c.vx) <= 800, seed
+        for _ in range(int(3 / DT)):
+            c.tick(DT, w, False)
+            if c.grounded:
+                break
+        assert c.grounded and abs(c.x - 1900) <= JUMP_MAX_SIDE + 20, seed
 
 
 def test_crawls_under_a_low_window_edge():

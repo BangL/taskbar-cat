@@ -34,6 +34,7 @@ SHAKE_LIMIT = 8      # so viele Wechsel am Stück, dann wird ihr schlecht
 SHAKE_DECAY = 1.2    # Wechsel pro Sekunde, die wieder vergessen werden
 VOMIT_S = 2.5
 VOMIT_SATIETY = 25   # so viel kommt wieder hoch
+JUMP_MAX_SIDE = 320  # so weit springt sie seitlich höchstens
 FLEE_FACTOR = 4      # so viel schneller als sonst läuft sie vom gesperrten Monitor
 FLEE_TIMEOUT = 30.0  # kommt sie nicht weg (Monitore nicht benachbart), doch umsetzen
 
@@ -674,10 +675,15 @@ class Cat:
     def _jump_targets(self, world: World, p: Platform) -> list[Platform]:
         # Scheitel liegt 60 px über dem Ziel; Sprite muss darunter noch auf den Schirm passen
         top = world.bounds().y + self.sprite + 60
-        return [q for q in world.reachable(p, self.x, max_up=math.inf) if q.y >= top]
+        reach = world.reachable(p, self.x, max_up=math.inf, max_side=JUMP_MAX_SIDE)
+        return [q for q in reach if q.y >= top]
 
     def _jump_to(self, q: Platform) -> None:
-        tx = self.rng.uniform(q.x1 + 20, q.x2 - 20)
+        # Nur in Reichweite landen: breite Plattformen (der Boden des Nachbarmonitors)
+        # liefern sonst Ziele quer über den Schirm und damit absurde Geschwindigkeiten
+        lo = max(q.x1 + 20, self.x - JUMP_MAX_SIDE)
+        hi = min(q.x2 - 20, self.x + JUMP_MAX_SIDE)
+        tx = self.rng.uniform(lo, hi) if lo < hi else min(max(self.x, q.x1), q.x2)
         dy = q.y - self.y
         h = max(0.0, -dy) + 60
         vy0 = -math.sqrt(2 * GRAVITY * h)
