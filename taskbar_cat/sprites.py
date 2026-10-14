@@ -8,9 +8,9 @@ from pathlib import Path
 from PyQt6.QtCore import QPointF, QRectF, Qt
 from PyQt6.QtGui import QColor, QImage, QPainter, QPen, QPolygonF
 
-ATLAS_VERSION = 6
+ATLAS_VERSION = 7
 FRAME = 32
-ANIMS = {"sit": 2, "walk": 4, "jump": 1, "fall": 1, "sleep": 2, "eat": 2, "purr": 2, "dragged": 2, "lie": 2, "climb": 4, "hang": 2,
+ANIMS = {"sit": 2, "groom": 2, "walk": 4, "jump": 1, "fall": 1, "sleep": 2, "eat": 2, "purr": 2, "dragged": 2, "lie": 2, "climb": 4, "hang": 2,
          "crouch": 2, "swipe": 2, "cheer": 2}
 MOODS = ("normal", "sad", "sick")
 
@@ -169,6 +169,21 @@ def _sit(c: _Pen, f: int, eyes="open"):
     c.head(18, 11, eyes)
 
 
+def _groom(c: _Pen, f: int):
+    """Fellpflege: Kopf gesenkt, eine Vorderpfote angehoben, Zungenspitze raus."""
+    d = f % 2
+    c.tail([(10, 30), (4, 30), (2, 26), (3, 22)])
+    c.ell(12, 26.5, 7, 4.5)
+    c.ell(14, 21, 5, 7)
+    c.rect(16, 23, 5, 8)
+    c.rect(18, 24, 1, 5, c.dark)
+    c.stripes([(11, 17), (13, 16)])
+    c.head(16, 15 + d, "closed")
+    c.rect(18, 18 + d, 4, 2)            # angehobene Pfote
+    c.rect(18, 20 + d, 4, 1, c.dark)    # grenzt sie vom Körper ab
+    c.px(18, 17 + d, NOSE)              # Zungenspitze
+
+
 def _walk(c: _Pen, f: int):
     lift = [(0, 1, 0, 1), (1, 0, 0, 0), (0, 1, 1, 0), (0, 0, 0, 1)][f]
     shift = [0, 1, 0, -1][f]
@@ -304,7 +319,7 @@ def _cheer(c: _Pen, f: int):
     c.heart(2, 5 + f)
 
 
-POSES = {"sit": _sit, "walk": _walk, "jump": _jump, "fall": _fall, "sleep": _sleep,
+POSES = {"sit": _sit, "groom": _groom, "walk": _walk, "jump": _jump, "fall": _fall, "sleep": _sleep,
          "eat": _eat, "purr": _purr, "dragged": _dragged, "lie": _lie,
          "climb": _climb, "hang": _hang,
          "crouch": _crouch, "swipe": _swipe, "cheer": _cheer}

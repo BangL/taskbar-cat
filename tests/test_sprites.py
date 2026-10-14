@@ -63,7 +63,7 @@ def test_no_frame_shows_the_background_through(qapp, tmp_path):
 
 
 # Posen, in denen der Koerper aufliegt (nicht nur schmale Pfoten wie beim Laufen)
-RESTING = ("sit", "lie", "sleep", "purr", "cheer", "crouch")
+RESTING = ("sit", "groom", "lie", "sleep", "purr", "cheer", "crouch")
 
 
 def test_resting_poses_sit_on_the_ground(qapp, tmp_path):
@@ -125,6 +125,13 @@ def test_climb_and_hang_frames(qapp, tmp_path):
     assert sprites.ANIMS["climb"] == 4 and sprites.ANIMS["hang"] == 2
     assert frame_image(img, "climb", "normal", 0) != frame_image(img, "climb", "normal", 1)
     assert frame_image(img, "hang", "normal", 0) != frame_image(img, "hang", "normal", 1)
+
+
+def test_groom_frames(qapp, tmp_path):
+    img = load(tmp_path)
+    assert sprites.ANIMS["groom"] == 2
+    assert frame_image(img, "groom", "normal", 0) != frame_image(img, "groom", "normal", 1)
+    assert frame_image(img, "groom", "normal", 0) != frame_image(img, "sit", "normal", 0)
 
 
 def test_play_frames(qapp, tmp_path):

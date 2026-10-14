@@ -27,6 +27,7 @@ SWIPE_MAX_UP = 350
 DIVE_MIN_DROP = 40   # so weit unter den Pfoten lohnt der Sprung nach unten
 MAX_POUNCE_VX = 900
 PLAY_REWARD = 3
+P_GROOM = 0.35       # Anteil der Ruhepausen, in denen sie sich putzt
 FLEE_FACTOR = 4      # so viel schneller als sonst läuft sie vom gesperrten Monitor
 FLEE_TIMEOUT = 30.0  # kommt sie nicht weg (Monitore nicht benachbart), doch umsetzen
 
@@ -577,7 +578,10 @@ class Cat:
         elif ceils:
             self.start_hang(world, self.rng.choice(ceils))
         elif self.rng.random() < 0.5:
-            self._set("idle_sit", self.rng.uniform(3, 10))
+            if self.rng.random() < P_GROOM:
+                self._set("groom", self.rng.uniform(3, 7))
+            else:
+                self._set("idle_sit", self.rng.uniform(3, 10))
         else:
             self.facing = self.rng.choice((-1, 1))
             self._set("walk", self.rng.uniform(2, 8))

@@ -189,6 +189,18 @@ def test_hidden_on_fullscreen_output():
     assert c.platform is not None
 
 
+def test_she_grooms_herself_now_and_then():
+    w = world()
+    c = make_cat()
+    c.spawn(w)
+    seen = set()
+    for _ in range(int(300 / DT)):
+        c.tick(DT, w, False)
+        seen.add(c.state)
+    assert "groom" in seen
+    assert {"idle_sit", "walk"} <= seen      # putzen verdrängt die anderen Pausen nicht
+
+
 def test_blocked_output_makes_her_walk_away():
     w = world(blocked=("DP-4",))
     c = make_cat()
