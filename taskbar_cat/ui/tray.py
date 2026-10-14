@@ -26,6 +26,7 @@ class CatTray(QObject):
         super().__init__()
         self._cat = cat
         self._mood = None
+        self._status_box: QMessageBox | None = None
         self._icons = _icons(fur)
         self._menu = QMenu()
         self._menu.addAction("Füttern", self.feedRequested.emit)
@@ -84,4 +85,13 @@ class CatTray(QObject):
         self._tray.setToolTip(self.status_text())
 
     def _show_status(self) -> None:
-        QMessageBox.information(None, "Taskbar-Cat", self.status_text())
+        """Nicht modal: ein offenes Statusfenster darf die Katze nicht blockieren."""
+        box = self._status_box
+        if box is None:
+            box = self._status_box = QMessageBox(QMessageBox.Icon.Information,
+                                                 "Taskbar-Cat", "")
+            box.setWindowModality(Qt.WindowModality.NonModal)
+        box.setText(self.status_text())
+        box.show()
+        box.raise_()
+        box.activateWindow()

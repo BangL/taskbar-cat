@@ -1,8 +1,8 @@
 """Einstellungsdialog, aufgebaut aus config.SPECS (Grenzen stehen nur dort)."""
 from PyQt6.QtWidgets import (QCheckBox, QColorDialog, QDialog, QDialogButtonBox, QDoubleSpinBox,
                              QFormLayout, QGroupBox, QPushButton, QSpinBox, QVBoxLayout, QWidget)
-from PyQt6.QtCore import pyqtSignal
-from PyQt6.QtGui import QColor
+from PyQt6.QtCore import Qt, QSize, pyqtSignal
+from PyQt6.QtGui import QColor, QIcon, QPainter, QPixmap
 
 from ..config import FUR_PRESETS, SPECS, Config
 from ..guard import guarded
@@ -34,14 +34,30 @@ def screen_choices(app=None) -> list[tuple[str, str]]:
     return out
 
 
+SWATCH = 16
+
+
+def _swatch(value: str) -> QIcon:
+    """Farbfleck mit dünnem Rand, damit auch Weiß auf dem Knopf zu sehen ist."""
+    px = QPixmap(SWATCH, SWATCH)
+    px.fill(QColor(value))
+    painter = QPainter(px)
+    painter.setPen(QColor(0, 0, 0, 120))
+    painter.drawRect(0, 0, SWATCH - 1, SWATCH - 1)
+    painter.end()
+    return QIcon(px)
+
+
 class ColorButton(QPushButton):
-    """Knopf in der gewählten Farbe, öffnet den Farbwähler."""
+    """Knopf mit Farbfleck, öffnet den Farbwähler."""
     picked = pyqtSignal(str)
 
     def __init__(self, value: str, title: str, parent: QWidget | None = None):
         super().__init__(parent)
         self._value = value
         self._title = title
+        self._dialog: QColorDialog | None = None
+        self.setIconSize(QSize(SWATCH, SWATCH))
         self.clicked.connect(guarded(self._choose))
         self._refresh()
 
@@ -53,15 +69,25 @@ class ColorButton(QPushButton):
         self._refresh()
 
     def _refresh(self) -> None:
-        c = QColor(self._value)
         self.setText(self._value.upper())
-        self.setStyleSheet(f"background-color: {c.name()}; "
-                           f"color: {'#000000' if c.lightness() > 128 else '#ffffff'};")
+        self.setIcon(_swatch(self._value))
 
     def _choose(self, checked: bool = False) -> None:   # clicked liefert checked mit
-        for i, preset in enumerate(FUR_PRESETS):
-            QColorDialog.setStandardColor(i, QColor(preset))
-        c = QColorDialog.getColor(QColor(self._value), self, self._title)
+        """Nicht modal: ein offener Farbwähler darf die Katze nicht blockieren."""
+        dlg = self._dialog
+        if dlg is None:
+            for i, preset in enumerate(FUR_PRESETS):
+                QColorDialog.setStandardColor(i, QColor(preset))
+            dlg = self._dialog = QColorDialog(QColor(self._value), self)
+            dlg.setWindowTitle(self._title)
+            dlg.setWindowModality(Qt.WindowModality.NonModal)
+            dlg.colorSelected.connect(guarded(self._chosen))
+        dlg.setCurrentColor(QColor(self._value))
+        dlg.show()
+        dlg.raise_()
+        dlg.activateWindow()
+
+    def _chosen(self, c: QColor) -> None:
         if c.isValid():
             self.setValue(c.name())
             self.picked.emit(self._value)
@@ -80,6 +106,7 @@ class SettingsDialog(QDialog):
                  screens: list[tuple[str, str]] | None = None):
         super().__init__(parent)
         self.setWindowTitle("Taskbar-Cat - Einstellungen")
+        self.setWindowModality(Qt.WindowModality.NonModal)   # darf die Katze nicht blockieren
         self._cfg = cfg
         self._widgets: dict[str, QWidget] = {}
         self._screens: dict[str, QCheckBox] = {}

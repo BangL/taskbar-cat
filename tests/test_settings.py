@@ -7,10 +7,11 @@ from taskbar_cat.ui.settings import GROUPS, SettingsDialog
 
 
 @pytest.fixture
-def pick(monkeypatch):
-    """Farbwähler durch eine feste Antwort ersetzen."""
-    def choose(color):
-        monkeypatch.setattr(QColorDialog, "getColor", staticmethod(lambda *a, **k: QColor(color)))
+def pick():
+    """Knopf klicken und im nicht modalen Farbwähler eine Farbe auswählen."""
+    def choose(button, color):
+        button.click()
+        button._dialog.colorSelected.emit(QColor(color))
     return choose
 
 SCREENS = [("DP-3", "DP-3 - 1920x1080 bei (0, 0)"), ("DP-4", "DP-4 - 1920x1080 bei (1920, 0)")]
@@ -103,20 +104,40 @@ def test_color_button_writes_through(qapp):
 
 def test_color_button_click_opens_picker(qapp, pick):
     """Echter Klick: clicked liefert ein Argument mit, der Slot muss es vertragen."""
-    pick("#8899aa")
     cfg = Config()
     dlg = SettingsDialog(cfg)
-    dlg._widgets["fur_color"].click()
+    button = dlg._widgets["fur_color"]
+    pick(button, "#8899aa")
     assert cfg.fur_color == "#8899aa"
-    assert dlg._widgets["fur_color"].value() == "#8899aa"
+    assert button.value() == "#8899aa"
+
+
+def test_color_picker_is_not_modal(qapp):
+    """Ein offener Farbwähler darf die Maus für Katze und Dialog nicht blockieren."""
+    button = SettingsDialog(Config())._widgets["fur_color"]
+    button.click()
+    assert isinstance(button._dialog, QColorDialog)
+    assert not button._dialog.isModal()
+    button.click()             # zweiter Klick zeigt denselben Wähler
+    assert button._dialog.currentColor().name() == Config().fur_color
 
 
 def test_color_button_keeps_value_when_cancelled(qapp, pick):
-    pick(QColor())            # ungültige Farbe = Abbruch
     cfg = Config()
     dlg = SettingsDialog(cfg)
-    dlg._widgets["fur_color"].click()
+    pick(dlg._widgets["fur_color"], QColor())   # ungültige Farbe = Abbruch
     assert cfg.fur_color == Config().fur_color
+
+
+def test_settings_dialog_is_not_modal(qapp):
+    assert not SettingsDialog(Config()).isModal()
+
+
+def test_color_button_shows_no_color_as_background(qapp):
+    """Die Farbe steckt im Icon, nicht im Stylesheet - sonst bricht das Theme."""
+    button = SettingsDialog(Config())._widgets["fur_color"]
+    assert button.styleSheet() == ""
+    assert not button.icon().isNull()
 
 
 def test_restore_defaults_button_click(qapp):
