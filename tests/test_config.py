@@ -53,3 +53,11 @@ def test_blocked_outputs_rejects_junk():
     c = Config()
     for junk in ("DP-1", 5, None):
         assert Config.from_dict({"blocked_outputs": junk}).blocked_outputs == []
+
+
+def test_fur_color_normalised_and_checked():
+    c = Config()
+    c.set("fur_color", "#8899AA")
+    assert c.fur_color == "#8899aa"
+    for junk in ("#abc", "rot", "8899aa", "#12345g", 5):
+        assert Config.from_dict({"fur_color": junk}).fur_color == Config().fur_color

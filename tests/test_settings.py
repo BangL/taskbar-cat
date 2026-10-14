@@ -1,5 +1,17 @@
+import pytest
+from PyQt6.QtGui import QColor
+from PyQt6.QtWidgets import QColorDialog
+
 from taskbar_cat.config import SPECS, Config
 from taskbar_cat.ui.settings import GROUPS, SettingsDialog
+
+
+@pytest.fixture
+def pick(monkeypatch):
+    """Farbwähler durch eine feste Antwort ersetzen."""
+    def choose(color):
+        monkeypatch.setattr(QColorDialog, "getColor", staticmethod(lambda *a, **k: QColor(color)))
+    return choose
 
 SCREENS = [("DP-3", "DP-3 - 1920x1080 bei (0, 0)"), ("DP-4", "DP-4 - 1920x1080 bei (1920, 0)")]
 
@@ -72,3 +84,36 @@ def test_restore_defaults_frees_all_monitors(qapp):
     dlg.restore_defaults()
     assert cfg == Config()
     assert all(b.isChecked() for b in dlg._screens.values())
+
+
+def test_color_button_writes_through(qapp):
+    cfg = Config()
+    dlg = SettingsDialog(cfg, screens=SCREENS)
+    seen = []
+    dlg.changed.connect(seen.append)
+    button = dlg._widgets["fur_color"]
+    assert button.value() == Config().fur_color
+    button.setValue("#8899aa")          # wie nach dem Farbwaehler
+    button.picked.emit(button.value())
+    assert cfg.fur_color == "#8899aa" and seen == ["fur_color"]
+    dlg.restore_defaults()
+    assert cfg.fur_color == Config().fur_color
+    assert button.value() == Config().fur_color
+
+
+def test_color_button_click_opens_picker(qapp, pick):
+    """Echter Klick: clicked liefert ein Argument mit, der Slot muss es vertragen."""
+    pick("#8899aa")
+    cfg = Config()
+    dlg = SettingsDialog(cfg)
+    dlg._widgets["fur_color"].click()
+    assert cfg.fur_color == "#8899aa"
+    assert dlg._widgets["fur_color"].value() == "#8899aa"
+
+
+def test_color_button_keeps_value_when_cancelled(qapp, pick):
+    pick(QColor())            # ungültige Farbe = Abbruch
+    cfg = Config()
+    dlg = SettingsDialog(cfg)
+    dlg._widgets["fur_color"].click()
+    assert cfg.fur_color == Config().fur_color

@@ -55,6 +55,12 @@ class OverlayManager(QObject):
         app.screenAdded.connect(guarded(self._add))
         app.screenRemoved.connect(guarded(self._remove))
 
+    def set_atlas(self, atlas: Path) -> None:
+        """Nach einem Farbwechsel das neue Spritesheet in alle Overlays geben."""
+        self._atlas = QUrl.fromLocalFile(str(atlas))
+        for ov in self._overlays.values():
+            ov.window.setProperty("atlas", self._atlas)
+
     def set_debug(self, on: bool) -> None:
         self._debug = on
         for ov in self._overlays.values():

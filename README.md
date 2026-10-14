@@ -69,6 +69,7 @@ Als Python-Paket (eigenes venv oder `--user`):
 - Mit dem Mauszeiger neben der Katze fuchteln: sie spielt und versucht zu fangen
 - Rechtsklick auf Katze oder Tray-Icon: Menü (Füttern, Schlafen, Zum Boden, Pause, Autostart, Einstellungen, ...)
 - Linksklick aufs Tray-Icon: füttern
+- "Einstellungen ..." -> "Fellfarbe": Farbwähler; Streifen, Kontur, Brust, Augen und die traurige/kranke Variante werden daraus berechnet
 - "Einstellungen ...": Größe, Tempo, Verfallszeiten, Futter-/Streichelmenge und Wahrscheinlichkeiten für Sprung, Klettern und Hängen; Werte greifen sofort
 - "Einstellungen ..." -> "Monitore": je ein Haken pro Monitor legt fest, wo die Katze laufen darf (mindestens einer bleibt an)
 - "Beim Anmelden starten": Haken verwaltet `~/.config/autostart/taskbar-cat.desktop`
@@ -100,10 +101,10 @@ Einbau in fastfetch (`~/.config/fastfetch/config.jsonc`):
 - Zustand: `$XDG_DATA_HOME/taskbar-cat/state.json` (Standard `~/.local/share/...`)
 - Einstellungen: `$XDG_CONFIG_HOME/taskbar-cat/config.json` (Standard `~/.config/...`)
 - Autostart: `$XDG_CONFIG_HOME/autostart/taskbar-cat.desktop`
-- Sprite-Cache: `$XDG_CACHE_HOME/taskbar-cat/` (Standard `~/.cache/...`)
+- Sprite-Cache: `$XDG_CACHE_HOME/taskbar-cat/` (Standard `~/.cache/...`), je Fellfarbe ein Spritesheet
 - KWin-Sensor und Desktop-Vorlage: `taskbar_cat/kwin/`, `taskbar_cat/data/` (Paketdateien)
 - KWin-Script-Logs: `journalctl --user -f | grep -i kwin`
-- Icon neu erzeugen: `python3 -m taskbar_cat.sprites --icon ~/pfad/icon.png` (`--size`, `--mood`, `--atlas`; `--help` zeigt alles)
+- Icon neu erzeugen: `python3 -m taskbar_cat.sprites --icon ~/pfad/icon.png` (`--size`, `--mood`, `--color`, `--atlas`; `--help` zeigt alles)
 
 ## Tests
 

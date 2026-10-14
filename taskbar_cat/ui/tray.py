@@ -8,6 +8,11 @@ from ..cat import MOOD_NAME, Cat
 from ..guard import guarded
 
 
+def _icons(fur: str) -> dict:
+    return {m: QIcon(QPixmap.fromImage(sprites.head_icon(m, fur).scaled(
+        64, 64, transformMode=Qt.TransformationMode.FastTransformation))) for m in sprites.MOODS}
+
+
 class CatTray(QObject):
     feedRequested = pyqtSignal()
     petRequested = pyqtSignal()
@@ -17,12 +22,11 @@ class CatTray(QObject):
     settingsRequested = pyqtSignal()
     quitRequested = pyqtSignal()
 
-    def __init__(self, cat: Cat):
+    def __init__(self, cat: Cat, fur: str = sprites.FUR_DEFAULT):
         super().__init__()
         self._cat = cat
         self._mood = None
-        self._icons = {m: QIcon(QPixmap.fromImage(sprites.head_icon(m).scaled(
-            64, 64, transformMode=Qt.TransformationMode.FastTransformation))) for m in sprites.MOODS}
+        self._icons = _icons(fur)
         self._menu = QMenu()
         self._menu.addAction("Füttern", self.feedRequested.emit)
         self._menu.addAction("Streicheln", self.petRequested.emit)
@@ -48,6 +52,11 @@ class CatTray(QObject):
 
     def menu(self) -> QMenu:
         return self._menu
+
+    def set_color(self, fur: str) -> None:
+        self._icons = _icons(fur)
+        self._mood = None          # erzwingt das Setzen beim nächsten refresh
+        self.refresh(self._sensor_ok)
 
     def _sync_autostart(self) -> None:
         """Haken am Dateizustand ausrichten (kann von außen geändert worden sein)."""

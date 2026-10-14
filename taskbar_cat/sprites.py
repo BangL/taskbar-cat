@@ -8,23 +8,60 @@ from pathlib import Path
 from PyQt6.QtCore import QPointF, QRectF, Qt
 from PyQt6.QtGui import QColor, QImage, QPainter, QPen, QPolygonF
 
-ATLAS_VERSION = 3
+ATLAS_VERSION = 4
 FRAME = 32
 ANIMS = {"sit": 2, "walk": 4, "jump": 1, "fall": 1, "sleep": 2, "eat": 2, "purr": 2, "dragged": 2, "lie": 2, "climb": 4, "hang": 2,
          "crouch": 2, "swipe": 2, "cheer": 2}
 MOODS = ("normal", "sad", "sick")
 
-PALETTES = {
-    "normal": {"fur": "#E8913A", "dark": "#8A4A1C"},
-    "sad": {"fur": "#D98A42", "dark": "#7A4420"},
-    "sick": {"fur": "#9DBF6A", "dark": "#5E7A3A"},
-}
+FUR_DEFAULT = "#E8913A"
 EYE = QColor("#1A1A1A")
+EYE_PALE = QColor("#E2DCA8")   # auf dunklem Fell sieht man schwarze Augen nicht
 NOSE = QColor("#F28CA0")
-WHITE = QColor("#FFFFFF")
 BOWL = QColor("#3A7BD5")
 HEART = QColor("#E8364F")
 ZZZ = QColor("#DDE6FF")
+
+
+def _hsv(c: QColor, dh: float = 0, fs: float = 1.0, fv: float = 1.0, h: float | None = None,
+         s: float | None = None, v: float | None = None) -> QColor:
+    """Farbe im HSV-Raum verschieben; dh in Grad, fs/fv als Faktoren."""
+    hue, sat, val, _ = c.getHsvF()
+    hue = 0.0 if hue < 0 else hue * 360        # Grau hat keinen Farbton
+    hue = (hue + dh) % 360 if h is None else h % 360
+    return QColor.fromHsvF(hue / 360, min(1.0, sat * fs) if s is None else s,
+                           min(1.0, val * fv) if v is None else min(1.0, v))
+
+
+def _mix(a: QColor, b: QColor, t: float) -> QColor:
+    return QColor(*(round(x + (y - x) * t) for x, y in
+                    ((a.red(), b.red()), (a.green(), b.green()), (a.blue(), b.blue()))))
+
+
+class Palette:
+    """Alle Katzenfarben aus einer Fellfarbe. Die Vorgabe ergibt die alten Werte."""
+
+    def __init__(self, fur: QColor | str = FUR_DEFAULT, mood: str = "normal"):
+        base = QColor(fur)
+        if not base.isValid():
+            base = QColor(FUR_DEFAULT)
+        if mood == "sad":
+            base = _hsv(base, dh=-1.5, fs=0.93, fv=0.935)
+        elif mood == "sick":
+            base = _hsv(base, h=84, s=max(0.40, base.saturationF() * 0.6), fv=0.823)
+        self.fur = base
+        val = base.valueF()
+        if val < 0.3:
+            # Sehr dunkles Fell: Streifen und Kontur müssen heller werden, sonst sieht man nichts
+            self.dark = _hsv(base, fs=0.9, v=val + 0.12)
+            self.outline = _hsv(base, fs=0.7, v=val + 0.18)
+        else:
+            self.dark = _hsv(base, dh=-5, fs=1.06, fv=0.595)
+            self.outline = _hsv(base, dh=-5.4, fs=0.88, fv=0.254)
+        # Brust und Schnauze: fast weiß mit einem Hauch Fellton, bei weißem Fell andersherum
+        pale = val > 0.9 and base.saturationF() < 0.15
+        self.light = _hsv(base, fs=0.12, fv=0.86) if pale else _mix(base, QColor("#FFFFFF"), 0.85)
+        self.eye = EYE if val > 0.42 else EYE_PALE
 
 
 def frame_origin(anim: str, mood: str, frame: int) -> tuple[int, int]:
@@ -35,12 +72,14 @@ def frame_origin(anim: str, mood: str, frame: int) -> tuple[int, int]:
 class _Pen:
     """Kleine Zeichenhilfe ohne Antialiasing."""
 
-    def __init__(self, painter: QPainter, mood: str):
+    def __init__(self, painter: QPainter, mood: str, fur: QColor | str = FUR_DEFAULT):
         self.p = painter
         self.mood = mood
-        pal = PALETTES[mood]
-        self.fur = QColor(pal["fur"])
-        self.dark = QColor(pal["dark"])
+        self.palette = Palette(fur, mood)
+        self.fur = self.palette.fur
+        self.dark = self.palette.dark
+        self.light = self.palette.light
+        self.eye = self.palette.eye
 
     def ell(self, cx, cy, rx, ry, color=None):
         self.p.setPen(Qt.PenStyle.NoPen)
@@ -79,17 +118,17 @@ class _Pen:
             self.poly([(cx - 4, cy - 3), (cx - 9, cy - 1), (cx - 4, cy)])
             self.poly([(cx + 4, cy - 3), (cx + 9, cy - 1), (cx + 4, cy)])
         self.ell(cx, cy, 6, 5)
-        self.rect(cx + 2, cy + 1, 4, 2, WHITE)
+        self.rect(cx + 2, cy + 1, 4, 2, self.light)
         self.px(cx + 5, cy, NOSE)
         if eyes == "closed" or (eyes == "open" and self.mood != "normal"):
-            self.rect(cx - 2, cy - 1 + (self.mood != "normal"), 2, 1, EYE)
-            self.rect(cx + 2, cy - 1 + (self.mood != "normal"), 2, 1, EYE)
+            self.rect(cx - 2, cy - 1 + (self.mood != "normal"), 2, 1, self.eye)
+            self.rect(cx + 2, cy - 1 + (self.mood != "normal"), 2, 1, self.eye)
         elif eyes == "wide":
-            self.rect(cx - 2, cy - 2, 2, 2, EYE)
-            self.rect(cx + 2, cy - 2, 2, 2, EYE)
+            self.rect(cx - 2, cy - 2, 2, 2, self.eye)
+            self.rect(cx + 2, cy - 2, 2, 2, self.eye)
         else:
-            self.rect(cx - 2, cy - 2, 1, 2, EYE)
-            self.rect(cx + 2, cy - 2, 1, 2, EYE)
+            self.rect(cx - 2, cy - 2, 1, 2, self.eye)
+            self.rect(cx + 2, cy - 2, 1, 2, self.eye)
         # Schnurrhaare
         self.px(cx + 7, cy + 1, self.dark)
         self.px(cx + 7, cy + 3, self.dark)
@@ -271,7 +310,7 @@ def _outline(img: QImage, x0: int, y0: int, color: QColor) -> None:
             img.setPixelColor(x0 + x, y0 + y, color)
 
 
-def render_atlas() -> QImage:
+def render_atlas(fur: QColor | str = FUR_DEFAULT) -> QImage:
     img = QImage(FRAME * max(ANIMS.values()), FRAME * len(ANIMS) * len(MOODS), QImage.Format.Format_ARGB32)
     img.fill(Qt.GlobalColor.transparent)
     for anim, n in ANIMS.items():
@@ -281,26 +320,33 @@ def render_atlas() -> QImage:
                 p = QPainter(img)
                 p.translate(x0, y0)
                 p.setClipRect(0, 0, FRAME, FRAME)
-                pen = _Pen(p, mood)
+                pen = _Pen(p, mood, fur)
                 POSES[anim](pen, f)
                 p.end()
-                _outline(img, x0, y0, QColor("#3B2414"))
+                _outline(img, x0, y0, pen.palette.outline)
     return img
 
 
-def ensure_atlas(cache_dir: Path) -> Path:
-    path = cache_dir / f"atlas-v{ATLAS_VERSION}.png"
+def ensure_atlas(cache_dir: Path, fur: QColor | str = FUR_DEFAULT) -> Path:
+    """Atlas je Fellfarbe zwischenspeichern (Name enthält die Farbe)."""
+    tint = QColor(fur)
+    if not tint.isValid():
+        tint = QColor(FUR_DEFAULT)
+    path = cache_dir / f"atlas-v{ATLAS_VERSION}-{tint.name()[1:]}.png"
+    for old in cache_dir.glob("atlas-v*.png"):
+        if not old.name.startswith(f"atlas-v{ATLAS_VERSION}-"):
+            old.unlink(missing_ok=True)       # Spritesheets älterer Versionen
     if not path.exists():
         cache_dir.mkdir(parents=True, exist_ok=True)
-        render_atlas().save(str(path))
+        render_atlas(tint).save(str(path))
     return path
 
 
-def head_icon(mood: str) -> QImage:
+def head_icon(mood: str, fur: QColor | str = FUR_DEFAULT) -> QImage:
     small = QImage(16, 16, QImage.Format.Format_ARGB32)
     small.fill(Qt.GlobalColor.transparent)
     p = QPainter(small)
-    _Pen(p, mood).head(7, 9, "open")
+    _Pen(p, mood, fur).head(7, 9, "open")
     p.end()
     big = QImage(FRAME, FRAME, QImage.Format.Format_ARGB32)
     big.fill(Qt.GlobalColor.transparent)
@@ -310,10 +356,11 @@ def head_icon(mood: str) -> QImage:
     return big
 
 
-def save_icon(path: Path, size: int = 256, mood: str = "normal") -> None:
+def save_icon(path: Path, size: int = 256, mood: str = "normal",
+              fur: QColor | str = FUR_DEFAULT) -> None:
     """App-Icon für Desktop-Dateien/Icon-Theme schreiben (Nearest Neighbour)."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    icon = head_icon(mood).scaled(size, size, transformMode=Qt.TransformationMode.FastTransformation)
+    icon = head_icon(mood, fur).scaled(size, size, transformMode=Qt.TransformationMode.FastTransformation)
     if not icon.save(str(path)):
         raise OSError(f"Icon nicht schreibbar: {path}")
 
@@ -333,6 +380,8 @@ def _cli(argv: list[str]) -> int:
     g.add_argument("--atlas", metavar="DATEI", help="komplettes Spritesheet als PNG schreiben")
     p.add_argument("--mood", choices=MOODS, default="normal", help="Stimmung des Icons (Standard: normal)")
     p.add_argument("--size", type=int, default=256, help="Kantenlänge des Icons in Pixel (Standard: 256)")
+    p.add_argument("--color", default=FUR_DEFAULT, metavar="#RRGGBB",
+                   help=f"Fellfarbe (Standard: {FUR_DEFAULT})")
     p.add_argument("--version", action="version", version=f"taskbar-cat {__version__}")
     args = p.parse_args(argv[1:])
 
@@ -340,9 +389,12 @@ def _cli(argv: list[str]) -> int:
     from PyQt6.QtGui import QGuiApplication  # QImage/QPainter brauchen eine App
 
     QGuiApplication.instance() or QGuiApplication(argv[:1])  # nur eine pro Prozess
+    if not QColor(args.color).isValid():
+        print(f"taskbar-cat: keine Farbe: {args.color}", file=sys.stderr)
+        return 2
     if args.icon:
-        save_icon(Path(args.icon), args.size, args.mood)
-    elif not render_atlas().save(args.atlas):
+        save_icon(Path(args.icon), args.size, args.mood, args.color)
+    elif not render_atlas(args.color).save(args.atlas):
         print(f"taskbar-cat: Atlas nicht schreibbar: {args.atlas}", file=sys.stderr)
         return 1
     return 0

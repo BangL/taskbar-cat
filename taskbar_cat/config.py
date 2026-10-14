@@ -1,12 +1,15 @@
 """Einstellbare Werte (rein, ohne Qt). SPECS beschreibt Grenzen und Beschriftung;
 Validierung und Dialog bauen beide darauf auf."""
+import re
 from dataclasses import asdict, dataclass, field, fields
+
+HEX_COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
 
 
 @dataclass(frozen=True)
 class Spec:
     label: str
-    kind: str          # "bool" | "int" | "float"
+    kind: str          # "bool" | "int" | "float" | "color"
     lo: float = 0
     hi: float = 0
     step: float = 1
@@ -16,6 +19,8 @@ class Spec:
 
 SPECS: dict[str, Spec] = {
     "sprite_scale": Spec("Größe", "int", 1, 6, 1, "x", "Kantenlänge = 32 Pixel x Faktor"),
+    "fur_color": Spec("Fellfarbe", "color", hint="Streifen, Kontur und die kranke Katze "
+                                                 "werden daraus abgeleitet"),
     "play_enabled": Spec("Mauszeiger fangen", "bool"),
     "debug_lines": Spec("Plattformen einblenden", "bool", hint="Kanten, Wände und Decken als Linien"),
     "walk_speed": Spec("Laufgeschwindigkeit", "float", 5, 400, 5, "px/s"),
@@ -33,6 +38,7 @@ SPECS: dict[str, Spec] = {
 @dataclass
 class Config:
     sprite_scale: int = 3
+    fur_color: str = "#e8913a"
     play_enabled: bool = True
     debug_lines: bool = False
     walk_speed: float = 60
@@ -71,6 +77,12 @@ class Config:
             self.blocked_outputs = sorted({str(v) for v in value})
             return
         spec = SPECS[name]
+        if spec.kind == "color":
+            text = str(value).strip()
+            if not HEX_COLOR.match(text):
+                raise ValueError(f"keine Farbe: {value!r}")
+            setattr(self, name, text.lower())
+            return
         if spec.kind == "bool":
             setattr(self, name, bool(value))
             return

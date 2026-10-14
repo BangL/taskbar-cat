@@ -1,13 +1,14 @@
 """Einstellungsdialog, aufgebaut aus config.SPECS (Grenzen stehen nur dort)."""
-from PyQt6.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox, QDoubleSpinBox, QFormLayout,
-                             QGroupBox, QSpinBox, QVBoxLayout, QWidget)
+from PyQt6.QtWidgets import (QCheckBox, QColorDialog, QDialog, QDialogButtonBox, QDoubleSpinBox,
+                             QFormLayout, QGroupBox, QPushButton, QSpinBox, QVBoxLayout, QWidget)
 from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtGui import QColor
 
 from ..config import SPECS, Config
 from ..guard import guarded
 
 GROUPS = (
-    ("Darstellung", ("sprite_scale", "debug_lines")),
+    ("Darstellung", ("sprite_scale", "fur_color", "debug_lines")),
     ("Verhalten", ("play_enabled", "walk_speed", "climb_speed", "p_jump", "p_climb", "p_hang")),
     ("Bedürfnisse", ("satiety_hours", "affection_hours", "feed_amount", "pet_amount")),
 )
@@ -31,6 +32,42 @@ def screen_choices(app=None) -> list[tuple[str, str]]:
             label += f", {model}"
         out.append((s.name(), label))
     return out
+
+
+FUR_PRESETS = ("#e8913a", "#5c3a21", "#2e2e2e", "#d8d8d8", "#8899aa", "#f2ebdd", "#c44b3a", "#6b8e6b")
+
+
+class ColorButton(QPushButton):
+    """Knopf in der gewählten Farbe, öffnet den Farbwähler."""
+    picked = pyqtSignal(str)
+
+    def __init__(self, value: str, title: str, parent: QWidget | None = None):
+        super().__init__(parent)
+        self._value = value
+        self._title = title
+        self.clicked.connect(guarded(self._choose))
+        self._refresh()
+
+    def value(self) -> str:
+        return self._value
+
+    def setValue(self, value: str) -> None:
+        self._value = value
+        self._refresh()
+
+    def _refresh(self) -> None:
+        c = QColor(self._value)
+        self.setText(self._value.upper())
+        self.setStyleSheet(f"background-color: {c.name()}; "
+                           f"color: {'#000000' if c.lightness() > 128 else '#ffffff'};")
+
+    def _choose(self, checked: bool = False) -> None:   # clicked liefert checked mit
+        for i, preset in enumerate(FUR_PRESETS):
+            QColorDialog.setStandardColor(i, QColor(preset))
+        c = QColorDialog.getColor(QColor(self._value), self, self._title)
+        if c.isValid():
+            self.setValue(c.name())
+            self.picked.emit(self._value)
 
 
 def _set_checked(box: QCheckBox, on: bool) -> None:
@@ -101,6 +138,10 @@ class SettingsDialog(QDialog):
             w = QCheckBox(spec.label)
             w.setChecked(bool(value))
             w.toggled.connect(guarded(lambda v, n=name: self._apply(n, v)))
+            return w
+        if spec.kind == "color":
+            w = ColorButton(str(value), spec.label)
+            w.picked.connect(guarded(lambda v, n=name: self._apply(n, v)))
             return w
         w = QSpinBox() if spec.kind == "int" else QDoubleSpinBox()
         if spec.kind == "float":
