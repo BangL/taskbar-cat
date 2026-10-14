@@ -1,6 +1,6 @@
 # Taskbar-Cat
 
-Pixel-Art-Katze (Tamagotchi) für KDE Plasma 6 / Wayland. Lebt am unteren Rand der Arbeitsfläche und auf Fensteroberkanten aller Monitore.
+Pixel-Art-Katze (Tamagotchi) für KDE Plasma 6 / Wayland. Lebt am unteren Rand der Arbeitsfläche und auf Fensteroberkanten aller Monitore; freischwebende Docks und Panels, die keinen Platz reservieren, sind ebenfalls begehbar.
 
 ## Voraussetzungen
 

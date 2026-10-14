@@ -6,10 +6,16 @@ function rect(r) {
     return { x: r.x, y: r.y, w: r.width, h: r.height };
 }
 
-function relevant(w) {
-    return w.normalWindow && !w.minimized && !w.deleted &&
-        (!w.desktops.length || w.desktops.includes(workspace.currentDesktop)) &&
+function here(w) {
+    return (!w.desktops.length || w.desktops.includes(workspace.currentDesktop)) &&
         (!w.activities.length || w.activities.includes(workspace.currentActivity));
+}
+
+function relevant(w) {
+    return !w.deleted && here(w) &&
+        ((w.normalWindow && !w.minimized) ||
+         // Panels und Docks: die Katze soll auch auf Leisten laufen können
+         (w.dock && !w.hidden));
 }
 
 function send() {
@@ -29,7 +35,8 @@ function send() {
             stack: w.stackingOrder,
             pid: w.pid,
             fullScreen: w.fullScreen,
-            maximized: g.width >= area.width && g.height >= area.height
+            maximized: g.width >= area.width && g.height >= area.height,
+            panel: !!w.dock
         };
     });
     callDBus("de.bangl.TaskbarCat", "/", "de.bangl.TaskbarCat", "update",
@@ -37,7 +44,7 @@ function send() {
 }
 
 function watch(w) {
-    ["frameGeometryChanged", "minimizedChanged", "fullScreenChanged",
+    ["frameGeometryChanged", "minimizedChanged", "fullScreenChanged", "hiddenChanged",
      "stackingOrderChanged", "desktopsChanged", "activitiesChanged"].forEach(function (s) {
         if (w[s]) {
             w[s].connect(send);

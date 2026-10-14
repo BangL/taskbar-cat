@@ -19,8 +19,8 @@ def world(*wins, names=("DP-3", "DP-4")):
     return World(outputs(names), list(wins))
 
 
-def win(id, x, y, w=800, h=400, stack=0, fs=False):
-    return Win(id, Rect(x, y, w, h), stack, fs, False)
+def win(id, x, y, w=800, h=400, stack=0, fs=False, panel=False):
+    return Win(id, Rect(x, y, w, h), stack, fs, False, panel)
 
 
 def make_cat(cfg=None, **needs):

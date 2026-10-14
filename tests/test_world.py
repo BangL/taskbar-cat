@@ -20,8 +20,8 @@ def two_outputs(panel="top"):
     return outs
 
 
-def win(id, x, y, w, h, stack=0, fs=False, mx=False):
-    return Win(str(id), Rect(x, y, w, h), stack, fs, mx)
+def win(id, x, y, w, h, stack=0, fs=False, mx=False, panel=False):
+    return Win(str(id), Rect(x, y, w, h), stack, fs, mx, panel)
 
 
 def window_platforms(world):
@@ -228,3 +228,49 @@ def test_from_json_ignores_own_overlay_windows():
     assert [x.id for x in w.windows] == ["a"]
     assert any(p.owner == "a" for p in w.platforms)
     assert any(x.owner == "a" for x in w.walls)
+
+
+# --- Panels und Docks ---
+
+def dock(id="dock", x=600, y=1016, w=692, h=64, stack=10):
+    return win(id, x, y, w, h, stack, panel=True)
+
+
+def test_dock_top_edge_is_platform():
+    w = World(two_outputs("none"), [dock()])
+    assert window_platforms(w) == [Platform(600, 1292, 1016, "dock")]
+
+
+def test_dock_has_no_walls_or_ceilings():
+    w = World(two_outputs("none"), [dock()])
+    assert w.walls == [] and w.ceilings == []
+
+
+def test_reserved_bottom_panel_adds_no_second_platform():
+    """Reserviert die Leiste Platz, ist ihre Oberkante schon der Boden."""
+    w = World(two_outputs("bottom"), [dock(y=1036, h=44)])
+    assert window_platforms(w) == []
+    assert floor(w, "DP-3").y == 1036
+
+
+def test_top_panel_is_not_walkable():
+    w = World(two_outputs("top"), [dock(x=0, y=0, w=1920, h=44)])
+    assert window_platforms(w) == []
+
+
+def test_dock_occludes_window_edge_below_it():
+    w = World(two_outputs("none"), [win("a", 620, 1030, 880, 50, 2), dock(stack=10)])
+    plats = [p for p in window_platforms(w) if p.owner == "a"]
+    assert [(p.x1, p.x2) for p in plats] == [(1292, 1500)]
+
+
+def test_from_json_reads_panel_flag():
+    data = {
+        "outputs": [{"name": "DP-3", "geometry": {"x": 0, "y": 0, "w": 1920, "h": 1080},
+                     "workArea": {"x": 0, "y": 0, "w": 1920, "h": 1080}}],
+        "windows": [{"id": "d", "x": 600, "y": 1016, "w": 692, "h": 64, "stack": 10,
+                     "panel": True}],
+    }
+    w = World.from_json(json.dumps(data))
+    assert w.windows[0].panel is True
+    assert window_platforms(w) == [Platform(600, 1292, 1016, "d")]

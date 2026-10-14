@@ -52,7 +52,7 @@ Datenfluss: KWin-Script -> D-Bus -> `world` -> `cat.tick(dt)` mit 30 FPS -> Over
 - Sendet bei jeder Änderung (KWin-JS hat keine Timer; Drosselung/Zusammenfassen passiert in der App, die nur das neueste Update pro Tick verarbeitet) per `callDBus("de.bangl.TaskbarCat", "/", "de.bangl.TaskbarCat", "update", json)`.
 - JSON: 
   - `outputs`: je Monitor `name`, `geometry` (x,y,w,h), `workArea` = `workspace.clientArea(KWin.MaximizeArea, output, currentDesktop)`.
-  - `windows`: nur normale, sichtbare Fenster auf aktuellem Desktop (keine Panels, Dialoge vom Typ Popup/Tooltip/Notification, keine minimierten): `id`, `x`, `y`, `w`, `h`, `stack` (Index in `stackingOrder`), `fullScreen`, `maximized`.
+  - `windows`: sichtbare Fenster auf aktuellem Desktop (keine Dialoge vom Typ Popup/Tooltip/Notification, keine minimierten): `id`, `x`, `y`, `w`, `h`, `stack` (Index in `stackingOrder`), `fullScreen`, `maximized`, `panel`. Enthalten sind normale Fenster (`normalWindow`) und Leisten (`dock`, nicht `hidden`, also kein eingeklapptes Auto-Hide-Panel); `panel: true` markiert letztere.
 - Beim Laden sendet das Script sofort ein vollständiges Update.
 
 ### 2. Weltmodell (`world.py`)
@@ -60,6 +60,7 @@ Datenfluss: KWin-Script -> D-Bus -> `world` -> `cat.tick(dt)` mit 30 FPS -> Over
 - Eingabe: Outputs + Fenster. Ausgabe: Liste von Plattformen `(x1, x2, y, owner)`, `owner` = Fenster-ID oder `floor:<output>`.
 - Boden je Monitor: Unterkante der `workArea`, über die Breite der `workArea`. Folge: Panel unten -> Katze läuft auf dem Panel; Panel oben/seitlich/fehlt -> Katze läuft am unteren Bildschirmrand.
 - Fensterkante: Oberkante des Rahmens, nur der Teil innerhalb der `workArea` des Monitors. Nicht begehbar, wenn die Kante auf/über der Oberkante der `workArea` liegt (z.B. maximierte Fenster).
+- Leisten (`panel: true`) liefern nur ihre Oberkante als Plattform, keine Wände und keine Decken. Leisten, die Platz reservieren, fallen durch die Regeln oben heraus (ihre Oberkante ist dann schon der Boden bzw. liegt auf der `workArea`-Oberkante); begehbar werden dadurch vor allem freischwebende Docks und Panels mit "Fenster können abdecken".
 - Verdeckung: Teilstücke einer Kante, die von einem höher gestapelten Fenster überdeckt sind (Kante liegt innerhalb dessen Rechteck), werden herausgeschnitten. Stücke < 40 px werden verworfen.
 - Vollbild-Fenster auf einem Monitor -> Monitor gilt als "verboten"; Katze darf ihn nicht betreten; ist sie dort, versteckt sie sich (unsichtbar, Logik läuft weiter).
 - Wände: linke/rechte Fensterkante (`Wall(x, y1, y2, owner, side)`), auf Arbeitsfläche geschnitten, mind. 30 px Abstand zum Arbeitsflächenrand, Verdeckung durch höhere Fenster herausgeschnitten, Stücke < 40 px verworfen.
@@ -129,7 +130,7 @@ Einstellungen: `$XDG_CONFIG_HOME/taskbar-cat/config.json`, geschrieben bei jeder
 ## Tests
 
 - `pytest` mit fester, injizierter Uhr.
-- `world.py`: Boden bei Panel unten/oben/fehlend, maximierte Fenster nicht begehbar, Verdeckung schneidet Kanten, Mini-Stücke verworfen, Vollbild sperrt Monitor, Erreichbarkeit.
+- `world.py`: Boden bei Panel unten/oben/fehlend, Leisten-Oberkante als Plattform ohne Wände/Decken, maximierte Fenster nicht begehbar, Verdeckung schneidet Kanten, Mini-Stücke verworfen, Vollbild sperrt Monitor, Erreichbarkeit.
 - `cat.py`: Verfallsraten, Füttern/Streicheln, Stimmungswechsel inkl. 2-h-Regel und Erholung, Einfrieren bei Sperre, Mitfahren mit Fenster, Fallen bei Kantenverlust, Wurf landet auf Plattform.
 - `storage.py`: Roundtrip, kaputte Datei.
 - Manuell: Overlay, Input-Durchreichung, KWin-Script, Tray. Argumente über `argparse` (`--help`, `--version`, `--debug`; unbekannte Optionen -> Exit 2), ebenso `taskbar_cat.bus` und `taskbar_cat.sprites`. Debug-Flag `--debug` zeichnet Plattformen (gelb/magenta), Wände (cyan) und Decken (rot) als Linien ins Overlay.

@@ -38,6 +38,7 @@ class Win:
     stack: int
     full_screen: bool
     maximized: bool
+    panel: bool = False
 
 
 @dataclass(frozen=True)
@@ -118,6 +119,8 @@ class World:
             wa = out.work_area
             above = [o for o in self.windows if o.stack > w.stack]
             self._build_top(w, wa, above)
+            if w.panel:
+                continue  # Panels tragen nur oben, kein Klettern und Hängen
             self._build_walls(w, wa, above)
             self._build_ceiling(w, wa, above)
 
@@ -171,7 +174,8 @@ class World:
                     raise ValueError("Output-Name")
                 outputs.append(Output(o["name"], rect(o["geometry"]), rect(o["workArea"])))
             windows = [Win(str(w["id"]), rect(w), int(w["stack"]), bool(w.get("fullScreen")),
-                           bool(w.get("maximized"))) for w in data.get("windows", [])
+                           bool(w.get("maximized")), bool(w.get("panel")))
+                       for w in data.get("windows", [])
                        if ignore_pid is None or w.get("pid") != ignore_pid]
         except (KeyError, TypeError, AttributeError, json.JSONDecodeError) as e:
             raise ValueError(f"ungültiges Update: {e}") from e
