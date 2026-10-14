@@ -189,13 +189,51 @@ def test_hidden_on_fullscreen_output():
     assert c.platform is not None
 
 
-def test_blocked_output_moves_her_instead_of_hiding():
+def test_blocked_output_makes_her_walk_away():
     w = world(blocked=("DP-4",))
     c = make_cat()
     c.spawn(w)
     c.x = 2500          # z.B. dorthin geworfen oder Monitor nachträglich gesperrt
+    run(c, w, 0.5)      # erst auf den Boden, dann los
+    assert c.state == "flee" and c.facing == -1 and c.visible
+    x = c.x
+    run(c, w, 1)
+    assert c.x < x - 100                      # zügig, nicht im Schritttempo
+    run(c, w, 10)
+    assert c.x < 1920 and c.state != "flee"   # angekommen und wieder normal
+
+
+def test_flee_climbs_down_from_a_window_first():
+    w = world(win("a", 2000, 400), blocked=("DP-4",))
+    c = make_cat()
+    c.spawn(w)
+    put_on(c, w, "a", 2400)
+    run(c, w, 1)
+    assert c.platform.is_floor                # Sprung ueber die Grenze gibt es nicht
+    run(c, w, 10)
+    assert c.x < 1920
+
+
+def test_flee_falls_back_to_teleport_without_a_path():
+    outs = [Output("DP-3", Rect(0, 0, 1920, 1080), Rect(0, 44, 1920, 1036)),
+            Output("DP-4", Rect(3000, 0, 1920, 1080), Rect(3000, 44, 1920, 1036))]
+    w = World(outs, [], ["DP-4"])
+    c = make_cat()
+    c.spawn(w)
+    c.x = 3900
+    run(c, w, 1)
+    assert c.state == "flee"                  # sie versucht es erst zu Fuss
+    run(c, w, 10)
+    assert c.x < 1920
+
+
+def test_fullscreen_on_a_blocked_output_still_hides():
+    w = world(win("fs", 1920, 0, 1920, 1080, stack=9, fs=True), blocked=("DP-4",))
+    c = make_cat()
+    c.spawn(w)
+    c.x = 2500
     c.tick(DT, w, False)
-    assert c.visible and c.platform.owner == "floor:DP-3" and c.x < 1920
+    assert c.state == "hidden"
 
 
 def test_spawn_avoids_blocked_output():

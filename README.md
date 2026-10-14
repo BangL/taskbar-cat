@@ -71,7 +71,7 @@ Als Python-Paket (eigenes venv oder `--user`):
 - Linksklick aufs Tray-Icon: füttern
 - "Einstellungen ..." -> "Fellfarbe": Farbwähler; Streifen, Kontur, Brust, Augen und die traurige/kranke Variante werden daraus berechnet
 - "Einstellungen ...": Größe, Tempo, Verfallszeiten, Futter-/Streichelmenge und Wahrscheinlichkeiten für Sprung, Klettern und Hängen; Werte greifen sofort
-- "Einstellungen ..." -> "Monitore": je ein Haken pro Monitor legt fest, wo die Katze laufen darf (mindestens einer bleibt an)
+- "Einstellungen ..." -> "Monitore": je ein Haken pro Monitor legt fest, wo die Katze laufen darf (mindestens einer bleibt an); von einem gesperrten Monitor läuft sie selbst hinüber
 - "Beim Anmelden starten": Haken verwaltet `~/.config/autostart/taskbar-cat.desktop`
 
 ## Status abfragen

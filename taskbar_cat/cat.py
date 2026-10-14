@@ -27,11 +27,13 @@ SWIPE_MAX_UP = 350
 DIVE_MIN_DROP = 40   # so weit unter den Pfoten lohnt der Sprung nach unten
 MAX_POUNCE_VX = 900
 PLAY_REWARD = 3
+FLEE_FACTOR = 4      # so viel schneller als sonst läuft sie vom gesperrten Monitor
+FLEE_TIMEOUT = 30.0  # kommt sie nicht weg (Monitore nicht benachbart), doch umsetzen
 
 AIRBORNE = ("jump", "fall", "thrown")
 CLINGING = ("climb", "hang")
 NO_PLAY = ("sleep", "dragged", "climb", "hang", "hidden", "eat", "sick_lie")
-ANIM_FOR_STATE = {"chase": "walk", "approach": "walk", "idle_sit": "sit", "sick_lie": "lie", "thrown": "fall", "hidden": "sit"}
+ANIM_FOR_STATE = {"chase": "walk", "approach": "walk", "flee": "walk", "idle_sit": "sit", "sick_lie": "lie", "thrown": "fall", "hidden": "sit"}
 MOOD_NAME = {Mood.NORMAL: "normal", Mood.SAD: "sad", Mood.SICK: "sick"}
 
 
@@ -60,6 +62,7 @@ class Cat:
         self._ignore: Platform | None = None
         self._lazy_after_eat = False
         self._drag_idle = 0.0
+        self._flee_s = 0.0
         self._grab: str | None = None
         self._wall: Wall | None = None
         self._ceiling: Ceiling | None = None
@@ -163,7 +166,7 @@ class Cat:
     # --- Simulation ---
 
     def _activity(self) -> str:
-        if self.state in AIRBORNE + CLINGING + ("walk", "approach", "dragged", "chase", "crouch"):
+        if self.state in AIRBORNE + CLINGING + ("walk", "approach", "dragged", "chase", "crouch", "flee"):
             return "active"
         return "sleep" if self.state == "sleep" else "rest"
 
@@ -189,13 +192,15 @@ class Cat:
             self.spawn(world)
             return
         if out.name in world.forbidden_outputs:
-            if out.name in world.blocked and _free(world):
-                self.spawn(world)  # gesperrter Monitor: umziehen statt verstecken
+            if (out.name in world.blocked and out.name not in world.fullscreen_outputs
+                    and _free(world)):
+                self._flee(dt, world)    # gesperrter Monitor: selbst weglaufen
                 return
             if self.state != "hidden":
                 self.state = "hidden"
                 self.platform = None
             return
+        self._flee_s = 0.0
         if self.state == "hidden":
             self._start_fall()
         if self.state in CLINGING:
@@ -315,7 +320,7 @@ class Cat:
         if self._play_left > 0 and self._cursor is not None and self.state not in NO_PLAY + ("purr", "cheer"):
             self._play(dt, world)
             return
-        if self.state in ("chase", "crouch"):
+        if self.state in ("chase", "crouch", "flee"):
             self._choose(world)
             return
 
@@ -350,6 +355,47 @@ class Cat:
         else:
             self.x = edge
             self.facing = -self.facing
+
+    def _nearest_free(self, world: World) -> float | None:
+        """Mitte des nächstgelegenen erlaubten Monitors."""
+        free = _free(world)
+        if not free:
+            return None
+        o = min(free, key=lambda o: abs(o.geometry.x + o.geometry.w / 2 - self.x))
+        return o.geometry.x + o.geometry.w / 2
+
+    def _flee(self, dt: float, world: World) -> None:
+        """Gesperrter Monitor: zügig hinunter und über die Grenze laufen, nicht springen."""
+        self._flee_s += dt
+        target = self._nearest_free(world)
+        if self._flee_s > FLEE_TIMEOUT or target is None:
+            self.spawn(world)
+            return
+        if self.state in CLINGING:
+            self._start_fall(floors_only=True)
+            return
+        if self.state in AIRBORNE:
+            self._integrate(min(dt, MAX_PHYS_DT), world)
+            return
+        if not self._ride(world):
+            self._start_fall(floors_only=True)
+            return
+        if not self.platform.is_floor:
+            self._start_fall(floors_only=True)   # der Boden verbindet die Monitore
+            return
+        self.state = "flee"
+        self.facing = 1 if target > self.x else -1
+        self.x += self.facing * self._speed(self.cfg.walk_speed) * FLEE_FACTOR * dt
+        p = self.platform
+        if p.x1 <= self.x <= p.x2:
+            return
+        n = world.neighbor(p, self.facing)
+        if n is None:                            # Monitore liegen nicht nebeneinander
+            self.x = min(max(self.x, p.x1), p.x2)
+            self.spawn(world)
+            return
+        self.platform = n
+        self._ride_rect = None if n.is_floor else world.window_rect(n.owner)
 
     # --- Spielen ---
 

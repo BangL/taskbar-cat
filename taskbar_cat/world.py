@@ -97,6 +97,7 @@ class World:
         if len(self.blocked) == len(outputs):
             self.blocked = set()  # alles gesperrt wäre kein Zuhause mehr
         self.forbidden_outputs: set[str] = set(self.blocked)
+        self.fullscreen_outputs: set[str] = set()
         self.platforms: list[Platform] = []
         self.walls: list[Wall] = []
         self.ceilings: list[Ceiling] = []
@@ -118,6 +119,7 @@ class World:
             if out is None:
                 continue
             if w.full_screen:
+                self.fullscreen_outputs.add(out.name)
                 self.forbidden_outputs.add(out.name)
                 continue
             wa = out.work_area
