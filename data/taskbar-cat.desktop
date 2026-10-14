@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Taskbar-Cat
+GenericName=Desktop-Katze
+Comment=Tamagotchi-Katze auf Boden und Fensterkanten
+Exec=taskbar-cat
+Icon=taskbar-cat
+Terminal=false
+Categories=Game;KDE;
+StartupNotify=false
+OnlyShowIn=KDE;
+X-KDE-autostart-after=panel
