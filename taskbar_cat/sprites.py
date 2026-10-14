@@ -8,7 +8,7 @@ from pathlib import Path
 from PyQt6.QtCore import QPointF, QRectF, Qt
 from PyQt6.QtGui import QColor, QImage, QPainter, QPen, QPolygonF
 
-ATLAS_VERSION = 5
+ATLAS_VERSION = 6
 FRAME = 32
 ANIMS = {"sit": 2, "walk": 4, "jump": 1, "fall": 1, "sleep": 2, "eat": 2, "purr": 2, "dragged": 2, "lie": 2, "climb": 4, "hang": 2,
          "crouch": 2, "swipe": 2, "cheer": 2}
@@ -158,11 +158,13 @@ class _Pen:
 
 def _sit(c: _Pen, f: int, eyes="open"):
     sway = (0, 1)[f % 2]
-    c.tail([(10, 29), (4, 29), (2, 26 - sway), (3, 22 - sway)])
-    c.ell(12, 26, 7, 4)
+    c.tail([(10, 30), (4, 30), (2, 26 - sway), (3, 22 - sway)])
+    c.ell(12, 26.5, 7, 4.5)
     c.ell(14, 21, 5, 7)
-    c.rect(16, 23, 2, 8)
-    c.rect(19, 23, 2, 8)
+    # Vorderbeine als ein Block mit angedeuteter Trennung: zwei getrennte Rechtecke
+    # lassen unten eine Lücke, durch die der Hintergrund scheint
+    c.rect(16, 23, 5, 8)
+    c.rect(18, 24, 1, 5, c.dark)
     c.stripes([(11, 17), (13, 16)])
     c.head(18, 11, eyes)
 
@@ -276,9 +278,9 @@ def _crouch(c: _Pen, f: int):
     """Lauern: tief geduckt, Hinterteil wackelt."""
     c.tail([(5, 24 - f), (2, 19), (3 + 2 * f, 15)])
     c.ell(8, 25 - f, 5, 4)
-    c.ell(15, 27, 10, 3)
-    c.rect(21, 28, 6, 2)
-    c.rect(6 + f, 28, 3, 2)
+    c.ell(15, 27.5, 10, 3.5)
+    c.rect(21, 28, 6, 3)
+    c.rect(6 + f, 28, 3, 3)
     c.stripes([(10, 23), (13, 24)])
     c.head(24, 24, "wide")
 
@@ -308,6 +310,34 @@ POSES = {"sit": _sit, "walk": _walk, "jump": _jump, "fall": _fall, "sleep": _sle
          "crouch": _crouch, "swipe": _swipe, "cheer": _cheer}
 
 
+def _fill_holes(img: QImage, x0: int, y0: int) -> None:
+    """Eingeschlossene Luecken schliessen: einzelne durchsichtige Pixel mitten im Sprite
+    lassen sonst den Hintergrund durchblitzen. Gefuellt wird mit der haeufigsten Nachbarfarbe."""
+    from collections import deque
+
+    solid = [[img.pixelColor(x0 + x, y0 + y).alpha() > 0 for y in range(FRAME)] for x in range(FRAME)]
+    outside = [[False] * FRAME for _ in range(FRAME)]
+    q = deque((x, y) for x in range(FRAME) for y in range(FRAME)
+              if (x in (0, FRAME - 1) or y in (0, FRAME - 1)) and not solid[x][y])
+    for x, y in q:
+        outside[x][y] = True
+    while q:
+        x, y = q.popleft()
+        for a, b in ((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)):
+            if 0 <= a < FRAME and 0 <= b < FRAME and not solid[a][b] and not outside[a][b]:
+                outside[a][b] = True
+                q.append((a, b))
+    for x in range(FRAME):
+        for y in range(FRAME):
+            if solid[x][y] or outside[x][y]:
+                continue
+            around = [img.pixelColor(x0 + a, y0 + b) for a, b in
+                      ((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1))
+                      if 0 <= a < FRAME and 0 <= b < FRAME and solid[a][b]]
+            if around:
+                img.setPixelColor(x0 + x, y0 + y, max(around, key=lambda c: around.count(c)))
+
+
 def _outline(img: QImage, x0: int, y0: int, color: QColor) -> None:
     """Konturpixel um alle deckenden Pixel des Frames setzen."""
     solid = {(x, y) for y in range(FRAME) for x in range(FRAME)
@@ -330,7 +360,9 @@ def render_atlas(fur: QColor | str = FUR_DEFAULT) -> QImage:
                 pen = _Pen(p, mood, fur)
                 POSES[anim](pen, f)
                 p.end()
+                _fill_holes(img, x0, y0)     # Lücken im Fell
                 _outline(img, x0, y0, pen.palette.outline)
+                _fill_holes(img, x0, y0)     # und was die Kontur gerade eingeschlossen hat
     return img
 
 

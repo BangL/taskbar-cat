@@ -101,6 +101,8 @@ Verhaltenszustände: `idle_sit`, `walk`, `approach`, `jump`, `fall`, `climb`, `h
 
 - **Overlay** (`ui/overlay.qml` + `overlay.py`): je Monitor ein `LayerShell.Window`, Layer `overlay`, Anker alle Seiten, `exclusionZone: -1` (ignoriert Panels, Overlay deckt ganzen Monitor), keine Tastatur-Interaktivität, transparent. Input-Region (`QWindow.setMask`) nur das Katzen-Rechteck (+8 px), sonst gehen Klicks durch. Nur das Overlay des Monitors, auf dem die Katze ist, zeigt sie (beim Übergang beide).
 - **Sprites** (`sprites.py`): 32x32-Pixel-Art, Darstellung 3x skaliert (Nearest Neighbour). Animationen: sitzen, laufen (4 Frames), springen, fallen, schlafen (Zzz), fressen (Napf), schnurren (Herz), zappeln, liegen (krank), klettern (4 Frames), hängen (2 Frames), lauern, Pfotenhieb, Jubel (je 2 Frames), Varianten für traurig (Ohren) und krank (Tönung). Blickrichtung durch Spiegeln. PNG wird beim ersten Start erzeugt und gecacht.
+- Ruheposen (sitzen, liegen, schlafen, schnurren, jubeln, lauern) liegen mit Zeile 30 auf; die Kontur darunter (Zeile 31) ist die Standlinie. Lag der Körper eine Zeile höher, klaffte zwischen Katze und Fensterkante eine Lücke.
+- Jeder Frame wird nach dem Zeichnen und noch einmal nach dem Setzen der Kontur von eingeschlossenen Lücken befreit (`_fill_holes`, Füllfarbe = häufigste Nachbarfarbe): einzelne durchsichtige Pixel mitten im Sprite lassen sonst den Desktop durchblitzen, und die Kontur selbst schließt solche Lücken erst ein.
 - Kopf (`_Pen.muzzle`): rosa Nase, darunter drei kurze Striche als Mund (die Winkel höher als die Mitte, sonst wirkt sie traurig) und zwei Schnurrhaare. Keine helle Maulfläche - die lässt die Katze bei 32 Pixeln wie einen Fuchs aussehen.
 - **Interaktion:**
   - Linksklick: streicheln (+2 Zuneigung).

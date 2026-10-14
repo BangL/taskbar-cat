@@ -32,6 +32,53 @@ def test_every_frame_has_pixels(qapp, tmp_path):
                 assert opaque(frame_image(img, anim, mood, i)) >= 50, (anim, mood, i)
 
 
+def enclosed_gaps(img, x0, y0):
+    """Durchsichtige Pixel, die vom Rand des Frames aus nicht erreichbar sind."""
+    from collections import deque
+
+    f = FRAME
+    solid = [[img.pixelColor(x0 + x, y0 + y).alpha() > 0 for y in range(f)] for x in range(f)]
+    outside = [[False] * f for _ in range(f)]
+    q = deque((x, y) for x in range(f) for y in range(f)
+              if (x in (0, f - 1) or y in (0, f - 1)) and not solid[x][y])
+    for x, y in q:
+        outside[x][y] = True
+    while q:
+        x, y = q.popleft()
+        for a, b in ((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)):
+            if 0 <= a < f and 0 <= b < f and not solid[a][b] and not outside[a][b]:
+                outside[a][b] = True
+                q.append((a, b))
+    return [(x, y) for x in range(f) for y in range(f) if not solid[x][y] and not outside[x][y]]
+
+
+def test_no_frame_shows_the_background_through(qapp, tmp_path):
+    """Eingeschlossene Lücken lassen den Desktop durchblitzen."""
+    img = load(tmp_path)
+    for anim, n in sprites.ANIMS.items():
+        for mood in sprites.MOODS:
+            for i in range(n):
+                x, y = sprites.frame_origin(anim, mood, i)
+                assert enclosed_gaps(img, x, y) == [], (anim, mood, i)
+
+
+# Posen, in denen der Koerper aufliegt (nicht nur schmale Pfoten wie beim Laufen)
+RESTING = ("sit", "lie", "sleep", "purr", "cheer", "crouch")
+
+
+def test_resting_poses_sit_on_the_ground(qapp, tmp_path):
+    """Sonst klafft zwischen Katze und Fensterkante eine Lücke."""
+    img = load(tmp_path)
+    fur = sprites.Palette()
+    for anim in RESTING:
+        for i in range(sprites.ANIMS[anim]):
+            x, y = sprites.frame_origin(anim, "normal", i)
+            touching = sum(1 for dx in range(FRAME)
+                           if img.pixelColor(x + dx, y + 30).alpha() > 0
+                           and img.pixelColor(x + dx, y + 30).rgb() != fur.outline.rgb())
+            assert touching >= 10, (anim, i, touching)
+
+
 def test_frame_index_wraps():
     assert sprites.frame_origin("walk", "normal", 5) == sprites.frame_origin("walk", "normal", 1)
 
