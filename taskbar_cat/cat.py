@@ -29,12 +29,17 @@ DIVE_MIN_DROP = 40   # so weit unter den Pfoten lohnt der Sprung nach unten
 MAX_POUNCE_VX = 900
 PLAY_REWARD = 3
 P_GROOM = 0.35       # Anteil der Ruhepausen, in denen sie sich putzt
+SHAKE_MIN_PX = 60    # Strecke, die ein Richtungswechsel wert ist
+SHAKE_LIMIT = 8      # so viele Wechsel am Stück, dann wird ihr schlecht
+SHAKE_DECAY = 1.2    # Wechsel pro Sekunde, die wieder vergessen werden
+VOMIT_S = 2.5
+VOMIT_SATIETY = 25   # so viel kommt wieder hoch
 FLEE_FACTOR = 4      # so viel schneller als sonst läuft sie vom gesperrten Monitor
 FLEE_TIMEOUT = 30.0  # kommt sie nicht weg (Monitore nicht benachbart), doch umsetzen
 
 AIRBORNE = ("jump", "fall", "thrown")
 CLINGING = ("climb", "hang")
-NO_PLAY = ("sleep", "dragged", "climb", "hang", "hidden", "eat", "sick_lie")
+NO_PLAY = ("sleep", "dragged", "climb", "hang", "hidden", "eat", "sick_lie", "vomit")
 ANIM_FOR_STATE = {"chase": "walk", "approach": "walk", "flee": "walk", "idle_sit": "sit", "sick_lie": "lie", "thrown": "fall", "hidden": "sit",
                   "beamed": "dragged", "abducted": "sit"}
 MOOD_NAME = {Mood.NORMAL: "normal", Mood.SAD: "sad", Mood.SICK: "sick"}
@@ -66,6 +71,10 @@ class Cat:
         self._lazy_after_eat = False
         self._drag_idle = 0.0
         self._flee_s = 0.0
+        self._shakes = 0.0
+        self._shake_dir = 0
+        self._shake_px = 0.0
+        self._queasy = False
         self.ufo: ufo.Ufo | None = None
         self._ufo_quiet = 0.0
         # Eigener Zufall fürs UFO, damit der Würfel pro Tick das übrige Verhalten nicht verschiebt
@@ -144,6 +153,9 @@ class Cat:
     def start_drag(self) -> None:
         if self.abducted:
             return
+        self._shakes = 0.0
+        self._shake_dir = 0
+        self._shake_px = 0.0
         self.state = "dragged"
         self.platform = None
         self.vx = self.vy = 0
@@ -155,7 +167,14 @@ class Cat:
         if self.state != "dragged":  # z.B. während der Entführung
             return
         if x != self.x:
-            self.facing = 1 if x > self.x else -1
+            d = 1 if x > self.x else -1
+            if d != self._shake_dir:
+                if self._shake_px >= SHAKE_MIN_PX:   # ein ordentlicher Ruck, kein Zittern
+                    self._shakes += 1
+                    self._queasy = self._queasy or self._shakes >= SHAKE_LIMIT
+                self._shake_dir, self._shake_px = d, 0.0
+            self._shake_px += abs(x - self.x)
+            self.facing = d
         self.x, self.y = x, y
         self._drag_idle = 0.0
 
@@ -225,6 +244,7 @@ class Cat:
         if self.state == "dragged":
             # Release verloren (Grab vom Compositor abgebrochen) -> fallen lassen
             self._drag_idle += dt
+            self._shakes = max(0.0, self._shakes - SHAKE_DECAY * dt)
             if self._drag_idle > DRAG_TIMEOUT:
                 self.release(0, 0)
             return
@@ -291,6 +311,11 @@ class Cat:
         if self._caught:
             self._caught = False
             self._set("cheer", 1.2)
+        if self._queasy:          # zu wild geschüttelt
+            self._queasy = False
+            self._shakes = 0.0
+            self.needs.satiety = max(0.0, self.needs.satiety - VOMIT_SATIETY)
+            self._set("vomit", VOMIT_S)
 
     def _ride(self, world: World) -> bool:
         """Plattform nachführen (Fenster bewegt, Panel verschoben). False = Boden weg."""
@@ -390,6 +415,8 @@ class Cat:
             if self.state == "eat" and self._lazy_after_eat:
                 self._lazy_after_eat = False
                 self._set("idle_sit", 60)
+            elif self.state == "vomit":
+                self._set("groom", self.rng.uniform(4, 7))   # danach macht sie sich sauber
             else:
                 self._choose(world)
 

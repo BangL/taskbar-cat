@@ -189,6 +189,55 @@ def test_hidden_on_fullscreen_output():
     assert c.platform is not None
 
 
+def shake(cat, w, times, span=90):
+    """Katze packen und `times` mal kräftig hin und her reißen."""
+    cat.start_drag()
+    x = cat.x
+    for i in range(times + 1):
+        cat.drag_to(x + (span if i % 2 else -span), cat.y)
+        cat.tick(DT, w, False)
+    cat.release(0, 0)
+
+
+def test_shaking_makes_her_throw_up_and_clean_herself():
+    w = world()
+    c = make_cat(satiety=80)
+    c.spawn(w)
+    shake(c, w, 10)
+    run(c, w, 1)                       # fallen und landen
+    assert c.state == "vomit"
+    assert c.needs.satiety == pytest.approx(55, abs=0.1)   # Verfall läuft nebenher
+    run(c, w, 3)
+    assert c.state == "groom"           # danach macht sie sich sauber
+
+
+def test_gentle_dragging_does_not_upset_her():
+    w = world()
+    c = make_cat()
+    c.spawn(w)
+    c.start_drag()
+    for i in range(40):                # ruhig quer über den Schirm tragen
+        c.drag_to(c.x + 20, c.y)
+        c.tick(DT, w, False)
+    c.release(0, 0)
+    run(c, w, 2)
+    assert c.state != "vomit"
+
+
+def test_shaking_slowly_is_forgotten():
+    w = world()
+    c = make_cat()
+    c.spawn(w)
+    c.start_drag()
+    x = c.x
+    for i in range(10):                # je ein Ruck, dann eine Sekunde Pause
+        c.drag_to(x + (90 if i % 2 else -90), c.y)
+        run(c, w, 1)
+    c.release(0, 0)
+    run(c, w, 2)
+    assert c.state != "vomit"
+
+
 def test_she_grooms_herself_now_and_then():
     w = world()
     c = make_cat()

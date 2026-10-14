@@ -8,10 +8,10 @@ from pathlib import Path
 from PyQt6.QtCore import QPointF, QRectF, Qt
 from PyQt6.QtGui import QColor, QImage, QLinearGradient, QPainter, QPen, QPolygonF
 
-ATLAS_VERSION = 7
+ATLAS_VERSION = 8
 UFO_VERSION = 1
 FRAME = 32
-ANIMS = {"sit": 2, "groom": 2, "walk": 4, "jump": 1, "fall": 1, "sleep": 2, "eat": 2, "purr": 2, "dragged": 2, "lie": 2, "climb": 4, "hang": 2,
+ANIMS = {"sit": 2, "groom": 2, "vomit": 2, "walk": 4, "jump": 1, "fall": 1, "sleep": 2, "eat": 2, "purr": 2, "dragged": 2, "lie": 2, "climb": 4, "hang": 2,
          "crouch": 2, "swipe": 2, "cheer": 2}
 MOODS = ("normal", "sad", "sick")
 
@@ -21,6 +21,7 @@ EYE_PALE = QColor("#E2DCA8")   # auf dunklem Fell sieht man schwarze Augen nicht
 NOSE = QColor("#F28CA0")
 BOWL = QColor("#3A7BD5")
 HEART = QColor("#E8364F")
+PUKE = QColor("#9FB04A")
 ZZZ = QColor("#DDE6FF")
 
 
@@ -185,6 +186,22 @@ def _groom(c: _Pen, f: int):
     c.px(18, 17 + d, NOSE)              # Zungenspitze
 
 
+def _vomit(c: _Pen, f: int):
+    """Es kommt hoch: geduckt, Kopf tief, Pfütze davor. Frame 0 würgt, Frame 1 spuckt."""
+    d = f % 2
+    c.tail([(10, 30), (4, 30), (2, 27), (4, 24)])
+    c.ell(12, 26.5, 7, 4.5)
+    c.ell(14, 22, 5, 6)
+    c.rect(16, 24, 5, 7)
+    c.rect(18, 25, 1, 4, c.dark)
+    c.stripes([(11, 18), (13, 17)])
+    c.head(17, 19 - d, "closed")
+    if d:
+        c.rect(22, 22, 2, 4, PUKE)          # Schwall aus dem Maul
+    c.rect(23, 28, 5, 1, PUKE)              # Pfütze davor
+    c.rect(22, 29, 7, 2, PUKE)
+
+
 def _walk(c: _Pen, f: int):
     lift = [(0, 1, 0, 1), (1, 0, 0, 0), (0, 1, 1, 0), (0, 0, 0, 1)][f]
     shift = [0, 1, 0, -1][f]
@@ -320,7 +337,7 @@ def _cheer(c: _Pen, f: int):
     c.heart(2, 5 + f)
 
 
-POSES = {"sit": _sit, "groom": _groom, "walk": _walk, "jump": _jump, "fall": _fall, "sleep": _sleep,
+POSES = {"sit": _sit, "groom": _groom, "vomit": _vomit, "walk": _walk, "jump": _jump, "fall": _fall, "sleep": _sleep,
          "eat": _eat, "purr": _purr, "dragged": _dragged, "lie": _lie,
          "climb": _climb, "hang": _hang,
          "crouch": _crouch, "swipe": _swipe, "cheer": _cheer}

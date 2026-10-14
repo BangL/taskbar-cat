@@ -134,6 +134,13 @@ def test_groom_frames(qapp, tmp_path):
     assert frame_image(img, "groom", "normal", 0) != frame_image(img, "sit", "normal", 0)
 
 
+def test_vomit_frames(qapp, tmp_path):
+    img = load(tmp_path)
+    assert sprites.ANIMS["vomit"] == 2
+    assert frame_image(img, "vomit", "normal", 0) != frame_image(img, "vomit", "normal", 1)
+    assert sprites.PUKE.name() in colors(frame_image(img, "vomit", "normal", 0))
+
+
 def test_play_frames(qapp, tmp_path):
     img = load(tmp_path)
     for anim in ("crouch", "swipe", "cheer"):

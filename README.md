@@ -65,7 +65,7 @@ Als Python-Paket (eigenes venv oder `--user`):
 ## Bedienung
 
 - Klick oder Maus über der Katze hin- und herreiben: streicheln
-- Ziehen und loslassen: werfen
+- Ziehen und loslassen: werfen; wer sie dabei wild hin und her schüttelt, darf hinterher die Pfütze bewundern
 - Mit dem Mauszeiger neben der Katze fuchteln: sie spielt und versucht zu fangen
 - Rechtsklick auf Katze oder Tray-Icon: Menü (Füttern, Schlafen, Zum Boden, Pause, Autostart, Einstellungen, ...)
 - Linksklick aufs Tray-Icon: füttern
