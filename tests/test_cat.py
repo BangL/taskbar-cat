@@ -554,6 +554,31 @@ def test_play_ends_without_wiggle():
     assert c.state not in ("chase", "crouch")
 
 
+def test_play_dives_off_window_edge():
+    w = world(win("a", 400, 600))
+    c = make_cat()
+    c.spawn(w)
+    put_on(c, w, "a", 800)
+    assert c.y == 600
+    assert play(c, w, 4, (820, 800), until=lambda c: c.platform is not None and c.platform.is_floor)
+
+
+def test_play_dives_off_panel_to_floor():
+    w = world(win("dock", 600, 1016, 692, 64, stack=10, panel=True))
+    c = make_cat()
+    c.spawn(w)
+    put_on(c, w, "dock", 900)
+    assert c.y == 1016
+    assert play(c, w, 4, (920, 1060), until=lambda c: c.platform is not None and c.platform.is_floor)
+
+
+def test_play_never_dives_through_the_floor():
+    w, c = floor_cat()
+    for _ in range(int(4 / DT)):
+        c.tick(DT, w, False, cursor=(990, 1140), wiggling=True)
+        assert c.y <= 1080
+
+
 def test_play_does_not_interrupt_climb():
     w = world(win("a", 300, 400, 400, 680))
     c = make_cat()

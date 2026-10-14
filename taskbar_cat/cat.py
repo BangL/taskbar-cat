@@ -24,6 +24,7 @@ PLAY_LINGER = 2.0    # so lange wird nach dem letzten Fuchteln weitergespielt
 CHASE_SPEED = 150
 POUNCE_RANGE = 200
 SWIPE_MAX_UP = 350
+DIVE_MIN_DROP = 40   # so weit unter den Pfoten lohnt der Sprung nach unten
 MAX_POUNCE_VX = 900
 PLAY_REWARD = 3
 
@@ -364,7 +365,9 @@ class Cat:
             return
         if abs(dx) < 120 and 120 < above <= SWIPE_MAX_UP:
             self._pounce_at(cx, cy, "swipe")
-        elif math.hypot(dx, cy - (self.y - self.sprite / 2)) < POUNCE_RANGE:
+        elif (abs(dx) < POUNCE_RANGE if self._can_dive(cy)
+              else math.hypot(dx, cy - (self.y - self.sprite / 2)) < POUNCE_RANGE):
+            # unter der Kante zählt nur der seitliche Abstand, die Tiefe macht die Schwerkraft
             self._set("crouch", self.rng.uniform(0.5, 1.0))
         else:
             self.state = "chase"
@@ -379,13 +382,23 @@ class Cat:
                     self.x = min(max(self.x, p.x1), p.x2)
                     self._set("crouch", self.rng.uniform(0.3, 0.6))
 
+    def _can_dive(self, cy: float) -> bool:
+        """Cursor deutlich unter der Kante: runterspringen statt davor zu hüpfen.
+        Vom Boden aus nicht, da ginge es durch den Bildschirmrand."""
+        return cy - self.y > DIVE_MIN_DROP and self.platform is not None and not self.platform.is_floor
+
     def _pounce_at(self, cx: float, cy: float, kind: str) -> None:
         """Sprung, dessen Scheitel (Pfoten) beim Cursor liegt."""
-        apex = min(self.y - 40, cy + 60)
+        dive = self._can_dive(cy)
+        apex = self.y - 40 if dive else min(self.y - 40, cy + 60)
         vy0 = -math.sqrt(2 * GRAVITY * (self.y - apex))
-        t = -vy0 / GRAVITY
+        dy = cy - self.y if dive else 0.0
+        t = (-vy0 + math.sqrt(vy0 * vy0 + 2 * GRAVITY * dy)) / GRAVITY
         vx = max(-MAX_POUNCE_VX, min(MAX_POUNCE_VX, (cx - self.x) / t))
+        here = self.platform
         self._leap(None, vx, vy0)
+        if dive:
+            self._ignore = here   # sonst landet sie sofort wieder auf der eigenen Kante
         self._pounce = kind
 
     def _speed(self, base: float) -> float:
