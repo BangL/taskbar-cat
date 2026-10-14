@@ -37,10 +37,13 @@ class OverlayManager(QObject):
     dragMoved = pyqtSignal(float, float)
     released = pyqtSignal(float, float)
 
-    def __init__(self, engine: QQmlEngine, atlas: Path, debug: bool):
+    def __init__(self, engine: QQmlEngine, atlas: Path, debug: bool,
+                 ufo: tuple[Path, Path] | None = None):
+        """ufo: Bilder für UFO und Traktorstrahl (sprites.ensure_ufo)."""
         super().__init__()
         self._engine = engine
         self._atlas = QUrl.fromLocalFile(str(atlas))
+        self._ufo = tuple(QUrl.fromLocalFile(str(p)) for p in ufo) if ufo else (QUrl(), QUrl())
         self._debug = debug
         qml = resource_file("ui", "overlay.qml")
         self._component = QQmlComponent(engine, QUrl.fromLocalFile(str(qml)))
@@ -69,7 +72,8 @@ class OverlayManager(QObject):
                 ov.window.setProperty("platforms", [])
 
     def _add(self, screen: QScreen) -> None:
-        win = self._component.createWithInitialProperties({"atlas": self._atlas})
+        win = self._component.createWithInitialProperties(
+            {"atlas": self._atlas, "ufoSource": self._ufo[0], "beamSource": self._ufo[1]})
         if win is None:
             print("taskbar-cat: Overlay nicht erstellt:", self._component.errors(), file=sys.stderr)
             return
@@ -109,6 +113,7 @@ class OverlayManager(QObject):
                 w.setProperty("srcX", sx)
                 w.setProperty("srcY", sy)
                 w.setProperty("flip", flip)
+            self._render_ufo(w, cat, o)
             mask = sprite.adjusted(-MASK_MARGIN, -MASK_MARGIN, MASK_MARGIN, MASK_MARGIN) if here else None
             # Während eines Drags behält das greifende Overlay seine Region (Implicit Grab).
             if mask != ov.mask and not self._drag.is_dragging:
@@ -124,6 +129,21 @@ class OverlayManager(QObject):
                 lines += [{"x": c.x1 - ox, "y": c.y - oy, "w": c.x2 - c.x1, "h": 2,
                            "color": "#80ff3030"} for c in world.ceilings]
                 w.setProperty("platforms", lines)
+
+    @staticmethod
+    def _render_ufo(w, cat: Cat, o: QPoint) -> None:
+        u = cat.ufo
+        w.setProperty("ufoVisible", u is not None)
+        if u is None:
+            return
+        w.setProperty("ufoX", u.x - o.x())
+        w.setProperty("ufoY", u.y - o.y())
+        w.setProperty("ufoWidth", round(u.width))
+        w.setProperty("ufoTime", u.t)
+        w.setProperty("beamOn", u.beam_on)
+        w.setProperty("beamTop", u.bottom - o.y())
+        w.setProperty("beamBottom", u.ground_y - o.y())
+        w.setProperty("beamWidth", cat.sprite * 1.3)
 
     # --- Maus (lokale Koordinaten -> global) ---
 

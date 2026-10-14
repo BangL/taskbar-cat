@@ -126,3 +126,13 @@ def test_restore_defaults_button_click(qapp):
     box = dlg.findChild(QDialogButtonBox)
     box.button(QDialogButtonBox.StandardButton.RestoreDefaults).click()
     assert cfg == Config()
+
+
+def test_show_value_updates_without_signal(qapp):
+    cfg = Config()
+    dlg = SettingsDialog(cfg)
+    seen = []
+    dlg.changed.connect(seen.append)
+    cfg.set("fur_color", "#6b8e6b")   # z.B. vom UFO umgefärbt
+    dlg.show_value("fur_color")
+    assert dlg._widgets["fur_color"].value() == "#6b8e6b" and seen == []

@@ -205,3 +205,13 @@ def test_old_atlas_versions_are_removed(qapp, tmp_path):
     sprites.ensure_atlas(tmp_path, "#8899aa")
     assert not stale.exists()
     assert keep.exists()
+
+
+def test_ufo_images(qapp, tmp_path):
+    ufo, beam = sprites.ensure_ufo(tmp_path)
+    for path, size in ((ufo, (32, 16)), (beam, (64, 128))):
+        img = QImage(str(path))
+        assert (img.width(), img.height()) == size and opaque(img) > 0
+    assert sprites.ensure_ufo(tmp_path) == (ufo, beam)
+    sprites.ensure_atlas(tmp_path)
+    assert ufo.exists() and beam.exists()   # Atlas-Aufräumen lässt das UFO stehen

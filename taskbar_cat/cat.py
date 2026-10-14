@@ -3,6 +3,7 @@ import dataclasses
 import math
 import random
 
+from . import ufo
 from .config import Config
 from .needs import Mood, Needs
 from .world import Ceiling, Platform, Rect, Wall, World
@@ -34,7 +35,8 @@ FLEE_TIMEOUT = 30.0  # kommt sie nicht weg (Monitore nicht benachbart), doch ums
 AIRBORNE = ("jump", "fall", "thrown")
 CLINGING = ("climb", "hang")
 NO_PLAY = ("sleep", "dragged", "climb", "hang", "hidden", "eat", "sick_lie")
-ANIM_FOR_STATE = {"chase": "walk", "approach": "walk", "flee": "walk", "idle_sit": "sit", "sick_lie": "lie", "thrown": "fall", "hidden": "sit"}
+ANIM_FOR_STATE = {"chase": "walk", "approach": "walk", "flee": "walk", "idle_sit": "sit", "sick_lie": "lie", "thrown": "fall", "hidden": "sit",
+                  "beamed": "dragged", "abducted": "sit"}
 MOOD_NAME = {Mood.NORMAL: "normal", Mood.SAD: "sad", Mood.SICK: "sick"}
 
 
@@ -64,6 +66,12 @@ class Cat:
         self._lazy_after_eat = False
         self._drag_idle = 0.0
         self._flee_s = 0.0
+        self.ufo: ufo.Ufo | None = None
+        self._ufo_quiet = 0.0
+        # Eigener Zufall fürs UFO, damit der Würfel pro Tick das übrige Verhalten nicht verschiebt
+        self.ufo_rng = random.Random()
+        self.ufo_rng.setstate(rng.getstate())
+        self._new_fur: str | None = None
         self._grab: str | None = None
         self._wall: Wall | None = None
         self._ceiling: Ceiling | None = None
@@ -82,7 +90,17 @@ class Cat:
 
     @property
     def visible(self) -> bool:
-        return self.state != "hidden" and not self.paused
+        return self.state not in ("hidden", "abducted") and not self.paused
+
+    @property
+    def abducted(self) -> bool:
+        """Gehört gerade dem UFO: keine Interaktion, kein eigenes Verhalten."""
+        return self.ufo is not None and self.ufo.holds_cat
+
+    def take_new_fur(self) -> str | None:
+        """Vom UFO gewählte Fellfarbe, einmalig abholen (übernimmt die App in die Einstellungen)."""
+        fur, self._new_fur = self._new_fur, None
+        return fur
 
     @property
     def grounded(self) -> bool:
@@ -98,26 +116,34 @@ class Cat:
         self.paused = p
 
     def feed(self) -> None:
+        if self.abducted:
+            return
         self._lazy_after_eat = self.needs.feed(self.cfg)
         if self.grounded:
             self._set("eat", 3)
 
     def pet(self) -> None:
+        if self.abducted:
+            return
         self.needs.pet(self.cfg)
         if self.grounded:
             self._set("purr", 1.5)
 
     def go_sleep(self) -> None:
-        if self.grounded:
+        if self.grounded and not self.abducted:
             self._set("sleep", math.inf)
 
     def call_to_floor(self) -> None:
+        if self.abducted:
+            return
         if self.state in CLINGING:
             self._start_fall(floors_only=True)
         elif self.grounded and not self.platform.is_floor:
             self._start_fall(floors_only=True)
 
     def start_drag(self) -> None:
+        if self.abducted:
+            return
         self.state = "dragged"
         self.platform = None
         self.vx = self.vy = 0
@@ -126,12 +152,16 @@ class Cat:
         self._pounce = None
 
     def drag_to(self, x: float, y: float) -> None:
+        if self.state != "dragged":  # z.B. während der Entführung
+            return
         if x != self.x:
             self.facing = 1 if x > self.x else -1
         self.x, self.y = x, y
         self._drag_idle = 0.0
 
     def release(self, vx: float, vy: float) -> None:
+        if self.abducted:
+            return
         self.state = "thrown"
         self.vx = max(-MAX_THROW, min(MAX_THROW, vx))
         self.vy = max(-MAX_THROW, min(MAX_THROW, vy))
@@ -182,6 +212,16 @@ class Cat:
             self._play_left = max(0.0, self._play_left - dt)
         if not locked:
             self.needs.tick(dt, self._activity(), self.cfg)
+        if self.ufo is not None:
+            holding = self.ufo.holds_cat
+            self.ufo.tick(min(dt, MAX_PHYS_DT), self, world, self.cfg.fur_color)
+            if self.ufo.new_fur:
+                self._new_fur, self.ufo.new_fur = self.ufo.new_fur, None
+            if self.ufo.phase == "done":
+                self.ufo = None
+                self._ufo_quiet = ufo.COOLDOWN_S
+            if holding:
+                return
         if self.state == "dragged":
             # Release verloren (Grab vom Compositor abgebrochen) -> fallen lassen
             self._drag_idle += dt
@@ -213,7 +253,18 @@ class Cat:
         if not self._ride(world):
             self._start_fall()
             return
+        if not locked and self._ufo_arrives(dt):
+            self.ufo = ufo.Ufo(self, world, self.ufo_rng)
+            self._set("beamed", math.inf)
+            return
         self._behave(dt, world)
+
+    def _ufo_arrives(self, dt: float) -> bool:
+        """Zufall pro Tick; nur bei ruhiger Katze, wenn keins unterwegs ist und nicht kurz
+        nach dem letzten Besuch."""
+        self._ufo_quiet = max(0.0, self._ufo_quiet - dt)
+        return (self.ufo is None and self._ufo_quiet == 0 and self.state in ufo.CALM
+                and self.ufo_rng.random() < ufo.PER_HOUR / 3600 * dt)
 
     def _set(self, state: str, duration: float) -> None:
         self.state = state
