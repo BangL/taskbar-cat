@@ -4,7 +4,10 @@ Pixel-Art-Katze (Tamagotchi) für KDE Plasma 6 / Wayland. Lebt am unteren Rand d
 
 ## Voraussetzungen
 
-Systempakete (Arch): `python-pyqt6`, `pyside6`/`qt6-declarative` (QtQml/QtQuick), `qt6-wayland`, `layer-shell-qt` bzw. `qml6-module-org-kde-layershell`, `python-dbus`. Tests: `python-pytest`.
+Systempakete (Arch): `python-pyqt6` (enthält QtCore, QtDBus, QtGui, QtQml, QtWidgets), `qt6-declarative`, `qt6-wayland`, `layer-shell-qt` (liefert das QML-Modul `org.kde.layershell`). Für die Tests: `python-pytest`.
+
+Auf anderen Distributionen heißen die Pakete anders, etwa `python3-pyqt6` und
+`qml6-module-org-kde-layershell` unter Debian/Ubuntu.
 
 ## Start
 
@@ -12,13 +15,23 @@ Aus dem Clone, ohne Installation:
 
     python3 -m taskbar_cat             # normal
     python3 -m taskbar_cat --debug     # Plattformen, Wände und Decken als Linien einblenden
-    python3 -m taskbar_cat --help       # Optionen anzeigen
-    python3 -m taskbar_cat --version
+    python3 -m taskbar_cat --help      # Optionen anzeigen
+    python3 -m taskbar_cat --version   # Version
     python3 -m taskbar_cat.bus --dump  # nur Fenster-Sensor testen
 
 Installiert (siehe unten) zusätzlich als `taskbar-cat`.
 
 ## Installation
+
+Arch Linux (AUR), baut aus dem aktuellen Stand von `main`:
+
+    paru -S taskbar-cat-git     # oder yay -S taskbar-cat-git
+
+Damit liegt der Startbefehl `taskbar-cat` in `/usr/bin`, der Startmenü-Eintrag
+und das Icon sind mit installiert; der Autostart läuft über den Haken im Menü
+der Katze.
+
+### Aus dem Clone
 
 Desktop-Eintrag und Icon für den aktuellen Benutzer, ohne root:
 
@@ -31,7 +44,7 @@ umschalten; bei Installation über ein Paket ist das der einzige nötige Weg.
 
 Das Skript ermittelt das Startkommando selbst: ist das Paket installiert, wird
 `taskbar-cat` benutzt, sonst `python3 -m taskbar_cat` aus diesem Verzeichnis.
-In `data/taskbar-cat.desktop` steht deshalb kein fester Pfad.
+In der Vorlage `taskbar_cat/data/taskbar-cat.desktop` steht deshalb kein fester Pfad.
 
 Als Python-Paket (eigenes venv oder `--user`):
 
