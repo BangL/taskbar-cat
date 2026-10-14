@@ -35,6 +35,11 @@ ANIM_FOR_STATE = {"chase": "walk", "approach": "walk", "idle_sit": "sit", "sick_
 MOOD_NAME = {Mood.NORMAL: "normal", Mood.SAD: "sad", Mood.SICK: "sick"}
 
 
+def _free(world: World) -> list:
+    """Monitore, auf denen die Katze sein darf."""
+    return [o for o in world.outputs if o.name not in world.forbidden_outputs]
+
+
 class Cat:
     def __init__(self, needs: Needs, rng: random.Random, cfg: Config | None = None):
         self.needs = needs
@@ -80,7 +85,8 @@ class Cat:
         return self.platform is not None and self.state not in AIRBORNE + ("dragged", "hidden")
 
     def spawn(self, world: World) -> None:
-        o = next((o for o in world.outputs if o.name == self.home_output), world.outputs[0])
+        free = _free(world) or world.outputs
+        o = next((o for o in free if o.name == self.home_output), free[0])
         self._land(world, Platform(o.work_area.x, o.work_area.right, o.work_area.bottom, f"floor:{o.name}"))
         self.x = o.work_area.x + o.work_area.w / 2
 
@@ -183,6 +189,9 @@ class Cat:
             self.spawn(world)
             return
         if out.name in world.forbidden_outputs:
+            if out.name in world.blocked and _free(world):
+                self.spawn(world)  # gesperrter Monitor: umziehen statt verstecken
+                return
             if self.state != "hidden":
                 self.state = "hidden"
                 self.platform = None

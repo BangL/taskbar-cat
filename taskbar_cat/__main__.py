@@ -29,9 +29,9 @@ def _rect(r) -> Rect:
     return Rect(r.x(), r.y(), r.width(), r.height())
 
 
-def fallback_world(app: QApplication) -> World:
+def fallback_world(app: QApplication, blocked: list[str] | tuple = ()) -> World:
     return World.from_screens([(s.name(), _rect(s.geometry()), _rect(s.availableGeometry()))
-                               for s in app.screens()])
+                               for s in app.screens()], blocked)
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
@@ -78,9 +78,10 @@ def main(argv: list[str] | None = None) -> int:
     cfg_file = paths.config_file()
     cfg = storage.load_config(cfg_file)
     cat = Cat(storage.load(state_file), random.Random(), cfg)
+    bus.cfg = cfg
     bus.status_provider = lambda: status.snapshot(cat, bus.sensor_ok)
     cat.home_output = app.primaryScreen().name()
-    state = {"world": fallback_world(app), "last": time.monotonic()}
+    state = {"world": fallback_world(app, cfg.blocked_outputs), "last": time.monotonic()}
     wiggle = WiggleDetector()
     cat.spawn(state["world"])
     bus.load_sensor()
@@ -110,6 +111,9 @@ def main(argv: list[str] | None = None) -> int:
     def config_changed(name: str) -> None:
         if name == "debug_lines":
             overlays.set_debug(debug or cfg.debug_lines)
+        elif name == "blocked_outputs":
+            state["world"] = fallback_world(app, cfg.blocked_outputs)
+            bus.refresh()  # echtes Weltmodell kommt mit dem nächsten Sensor-Update
         storage.try_save(cfg_file, cfg)
 
     def show_settings() -> None:

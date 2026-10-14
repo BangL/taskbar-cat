@@ -70,6 +70,7 @@ Als Python-Paket (eigenes venv oder `--user`):
 - Rechtsklick auf Katze oder Tray-Icon: Menü (Füttern, Schlafen, Zum Boden, Pause, Autostart, Einstellungen, ...)
 - Linksklick aufs Tray-Icon: füttern
 - "Einstellungen ...": Größe, Tempo, Verfallszeiten, Futter-/Streichelmenge und Wahrscheinlichkeiten für Sprung, Klettern und Hängen; Werte greifen sofort
+- "Einstellungen ..." -> "Monitore": je ein Haken pro Monitor legt fest, wo die Katze laufen darf (mindestens einer bleibt an)
 - "Beim Anmelden starten": Haken verwaltet `~/.config/autostart/taskbar-cat.desktop`
 
 ## Status abfragen

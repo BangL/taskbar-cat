@@ -89,10 +89,14 @@ def _subtract(pieces: list[tuple[float, float]], a: float, b: float) -> list[tup
 
 
 class World:
-    def __init__(self, outputs: list[Output], windows: list[Win]):
+    def __init__(self, outputs: list[Output], windows: list[Win], blocked: list[str] | tuple = ()):
+        """blocked: Monitore, die der Benutzer gesperrt hat (dauerhaft, anders als Vollbild)."""
         self.outputs = outputs
         self.windows = windows
-        self.forbidden_outputs: set[str] = set()
+        self.blocked: set[str] = {o.name for o in outputs if o.name in set(blocked)}
+        if len(self.blocked) == len(outputs):
+            self.blocked = set()  # alles gesperrt wäre kein Zuhause mehr
+        self.forbidden_outputs: set[str] = set(self.blocked)
         self.platforms: list[Platform] = []
         self.walls: list[Wall] = []
         self.ceilings: list[Ceiling] = []
@@ -158,7 +162,8 @@ class World:
             self.ceilings.append(Ceiling(x1, x2, y, w.id))
 
     @classmethod
-    def from_json(cls, text: str, ignore_pid: int | None = None) -> "World":
+    def from_json(cls, text: str, ignore_pid: int | None = None,
+                  blocked: list[str] | tuple = ()) -> "World":
         """ignore_pid: Fenster dieses Prozesses (eigene Overlays) überspringen."""
         try:
             data = json.loads(text)
@@ -179,11 +184,12 @@ class World:
                        if ignore_pid is None or w.get("pid") != ignore_pid]
         except (KeyError, TypeError, AttributeError, json.JSONDecodeError) as e:
             raise ValueError(f"ungültiges Update: {e}") from e
-        return cls(outputs, windows)
+        return cls(outputs, windows, blocked)
 
     @classmethod
-    def from_screens(cls, screens: list[tuple[str, Rect, Rect]]) -> "World":
-        return cls([Output(n, g, a) for n, g, a in screens], [])
+    def from_screens(cls, screens: list[tuple[str, Rect, Rect]],
+                     blocked: list[str] | tuple = ()) -> "World":
+        return cls([Output(n, g, a) for n, g, a in screens], [], blocked)
 
     def output_at(self, x: float, y: float) -> Output | None:
         hits = [o for o in self.outputs if o.geometry.x <= x < o.geometry.right]

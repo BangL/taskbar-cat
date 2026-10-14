@@ -15,8 +15,8 @@ def outputs(names=("DP-3", "DP-4")):
             for i, n in enumerate(names)]
 
 
-def world(*wins, names=("DP-3", "DP-4")):
-    return World(outputs(names), list(wins))
+def world(*wins, names=("DP-3", "DP-4"), blocked=()):
+    return World(outputs(names), list(wins), blocked)
 
 
 def win(id, x, y, w=800, h=400, stack=0, fs=False, panel=False):
@@ -187,6 +187,32 @@ def test_hidden_on_fullscreen_output():
     run(c, w, 2)
     assert c.visible
     assert c.platform is not None
+
+
+def test_blocked_output_moves_her_instead_of_hiding():
+    w = world(blocked=("DP-4",))
+    c = make_cat()
+    c.spawn(w)
+    c.x = 2500          # z.B. dorthin geworfen oder Monitor nachträglich gesperrt
+    c.tick(DT, w, False)
+    assert c.visible and c.platform.owner == "floor:DP-3" and c.x < 1920
+
+
+def test_spawn_avoids_blocked_output():
+    w = world(blocked=("DP-3",))
+    c = make_cat()
+    c.home_output = "DP-3"
+    c.spawn(w)
+    assert c.platform.owner == "floor:DP-4"
+
+
+def test_fullscreen_still_hides_her():
+    """Vollbild ist vorübergehend: verstecken, nicht umziehen."""
+    w = world(win("fs", 0, 0, 1920, 1080, stack=9, fs=True))
+    c = make_cat()
+    c.x, c.y = 960, 1080
+    c.tick(DT, w, False)
+    assert c.state == "hidden"
 
 
 def test_sick_cat_goes_to_floor_and_lies():

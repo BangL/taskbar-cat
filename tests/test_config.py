@@ -4,7 +4,8 @@ from taskbar_cat.config import SPECS, Config
 
 
 def test_every_field_has_a_spec():
-    assert {f.name for f in fields(Config)} == set(SPECS)
+    # blocked_outputs ist die Ausnahme: die Auswahl kommt aus den vorhandenen Monitoren
+    assert {f.name for f in fields(Config)} - {"blocked_outputs"} == set(SPECS)
 
 
 def test_derived_values():
@@ -38,3 +39,17 @@ def test_roundtrip_and_bad_values():
 
 def test_defaults_when_file_had_nothing():
     assert Config.from_dict({}) == Config()
+
+
+def test_blocked_outputs_normalised():
+    c = Config()
+    c.set("blocked_outputs", ["DP-2", "DP-1", "DP-1"])
+    assert c.blocked_outputs == ["DP-1", "DP-2"]
+    assert not c.allows("DP-1") and c.allows("HDMI-A-1")
+    assert Config.from_dict(c.to_dict()).blocked_outputs == ["DP-1", "DP-2"]
+
+
+def test_blocked_outputs_rejects_junk():
+    c = Config()
+    for junk in ("DP-1", 5, None):
+        assert Config.from_dict({"blocked_outputs": junk}).blocked_outputs == []

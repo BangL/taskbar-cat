@@ -8,6 +8,7 @@ from typing import Callable
 from PyQt6.QtCore import QObject, QTimer, pyqtClassInfo, pyqtSignal, pyqtSlot
 from PyQt6.QtDBus import QDBusConnection, QDBusInterface, QDBusMessage
 
+from .config import Config
 from .guard import guarded
 from .paths import sensor_script
 from .world import World
@@ -50,6 +51,8 @@ class CatBus(QObject):
         super().__init__()
         self.adaptor = _Adaptor(self)
         self._pending: str | None = None
+        self._last_text: str | None = None
+        self.cfg: Config | None = None
         self._cursor_samples: list[tuple[float, float, float]] = []
         self._received = False
         self._last_load = 0.0
@@ -84,13 +87,20 @@ class CatBus(QObject):
         text, self._pending = self._pending, None
         if text is None:
             return None
+        self._last_text = text
+        blocked = self.cfg.blocked_outputs if self.cfg is not None else ()
         try:
-            world = World.from_json(text, ignore_pid=os.getpid())
+            world = World.from_json(text, ignore_pid=os.getpid(), blocked=blocked)
         except ValueError as e:
             print(f"taskbar-cat: {e}", file=sys.stderr)
             return None
         self._received = True
         return world
+
+    def refresh(self) -> None:
+        """Letztes Sensor-Update erneut auswerten (nach geänderten Einstellungen)."""
+        if self._last_text is not None:
+            self._pending = self._last_text
 
     def take_cursor_samples(self) -> list[tuple[float, float, float]]:
         """Cursor-Positionen (x, y, monotonic) seit dem letzten Aufruf."""

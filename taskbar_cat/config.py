@@ -1,6 +1,6 @@
 """Einstellbare Werte (rein, ohne Qt). SPECS beschreibt Grenzen und Beschriftung;
 Validierung und Dialog bauen beide darauf auf."""
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict, dataclass, field, fields
 
 
 @dataclass(frozen=True)
@@ -44,6 +44,9 @@ class Config:
     p_jump: float = 0.15
     p_climb: float = 0.15
     p_hang: float = 0.10
+    # Monitore, auf denen die Katze nicht laufen soll (KWin-Namen wie "DP-1").
+    # Nicht in SPECS: die Auswahl entsteht erst zur Laufzeit aus den vorhandenen Monitoren.
+    blocked_outputs: list[str] = field(default_factory=list)
 
     @property
     def sprite_px(self) -> int:
@@ -57,8 +60,16 @@ class Config:
     def affection_decay(self) -> float:
         return 100 / (self.affection_hours * 3600)
 
+    def allows(self, output: str) -> bool:
+        return output not in self.blocked_outputs
+
     def set(self, name: str, value) -> None:
         """Einzelwert setzen, auf die Grenzen aus SPECS begrenzt."""
+        if name == "blocked_outputs":
+            if isinstance(value, str) or not hasattr(value, "__iter__"):
+                raise TypeError("blocked_outputs braucht eine Liste von Monitornamen")
+            self.blocked_outputs = sorted({str(v) for v in value})
+            return
         spec = SPECS[name]
         if spec.kind == "bool":
             setattr(self, name, bool(value))

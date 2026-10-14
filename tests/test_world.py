@@ -274,3 +274,33 @@ def test_from_json_reads_panel_flag():
     w = World.from_json(json.dumps(data))
     assert w.windows[0].panel is True
     assert window_platforms(w) == [Platform(600, 1292, 1016, "d")]
+
+
+# --- Gesperrte Monitore ---
+
+def test_blocked_output_is_forbidden():
+    w = World(two_outputs(), [], blocked=["DP-4"])
+    assert w.blocked == {"DP-4"}
+    assert w.forbidden_outputs == {"DP-4"}
+
+
+def test_unknown_blocked_name_is_ignored():
+    """Monitornamen wandern zwischen Maschinen und Anschlüssen."""
+    w = World(two_outputs(), [], blocked=["HDMI-A-1"])
+    assert w.forbidden_outputs == set()
+
+
+def test_blocking_every_output_is_ignored():
+    w = World(two_outputs(), [], blocked=["DP-3", "DP-4"])
+    assert w.forbidden_outputs == set()
+
+
+def test_blocked_output_is_not_reachable():
+    w = World(two_outputs(), [win("a", 2000, 300, 800, 500)], blocked=["DP-4"])
+    reach = w.reachable(floor(w, "DP-3"), 1900, max_up=2000, max_side=2000)
+    assert all(q.owner != "a" for q in reach)
+
+
+def test_from_screens_with_blocked():
+    w = World.from_screens([(o.name, o.geometry, o.work_area) for o in two_outputs()], ["DP-4"])
+    assert w.forbidden_outputs == {"DP-4"}

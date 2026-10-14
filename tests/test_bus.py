@@ -1,6 +1,7 @@
 import json
 
 from taskbar_cat.bus import CatBus
+from taskbar_cat.config import Config
 
 UPDATE = {
     "outputs": [{"name": "DP-3", "geometry": {"x": 0, "y": 0, "w": 1920, "h": 1080},
@@ -49,3 +50,17 @@ def test_cursor_samples(qapp):
     samples = bus.take_cursor_samples()
     assert [(x, y) for x, y, _ in samples] == [(10, 20), (30.5, 40)]
     assert bus.take_cursor_samples() == []
+
+
+def test_blocked_outputs_from_config_and_refresh(qapp):
+    two = json.loads(json.dumps(UPDATE))
+    two["outputs"].append({"name": "DP-4", "geometry": {"x": 1920, "y": 0, "w": 1920, "h": 1080},
+                           "workArea": {"x": 1920, "y": 44, "w": 1920, "h": 1036}})
+    bus = CatBus()
+    bus.cfg = Config()
+    bus.adaptor.update(json.dumps(two))
+    assert bus.latest_world().forbidden_outputs == set()
+    bus.cfg.set("blocked_outputs", ["DP-4"])
+    assert bus.latest_world() is None        # ohne neues Sensor-Update passiert nichts
+    bus.refresh()
+    assert bus.latest_world().forbidden_outputs == {"DP-4"}
