@@ -1,22 +1,22 @@
-"""Möbel: Katzenbett, Napf und Wollknäuel, je eins. Bett und Napf stehen auf dem Boden
-eines Monitors, das Knäuel fliegt, rollt und liegt auch auf Fenstern; alles kann im
-Inventar liegen (rein, ohne Qt)."""
+"""Möbel: Katzenbett, Napf, Wollknäuel und Kratzbaum, je eins. Aufgestellt fallen sie
+auf die nächste Kante darunter (Boden oder Fenster), fahren mit dem Fenster mit und
+fallen herunter, wenn es verschwindet; sonst liegen sie im Inventar (rein, ohne Qt)."""
 import math
-from dataclasses import dataclass
 
-from .world import GRAVITY, Output, Platform, Rect, Win, World
+from .world import GRAVITY, Platform, Rect, Win, World
 
 KINDS = ("bed", "bowl", "yarn", "tree")
 NAMES = {"bed": "Katzenbett", "bowl": "Napf", "yarn": "Wollknäuel", "tree": "Kratzbaum"}
 # Frame-Höhe in Pixeln, wenn nicht 32 (Breite ist immer 32)
 FRAME_H = {"tree": 64}
-# Sichtbarer Teil im Frame (x, y, w, h): Mausfläche und Abstand zum Monitorrand
+# Sichtbarer Teil im Frame (x, y, w, h): Mausfläche und Abstand zum Bildschirmrand
 BOX = {"bed": (1, 21, 30, 11), "bowl": (11, 25, 10, 7), "yarn": (11, 22, 10, 10),
        "tree": (3, 8, 26, 55)}
 # Liegefläche oben auf dem Kratzbaum (x, y, w, h im Frame); wird zur begehbaren Kante
 TREE_DECK = (3, 8, 26, 5)
 TREE_ID = "furniture:tree"
 TREE_STACK = 1 << 30   # liegt im Overlay über allen Fenstern
+BOUNCY = ("yarn",)     # hüpft, rollt und lässt sich werfen; der Rest wird abgesetzt
 BOWL_PORTIONS = 3
 ROLL_FRICTION = 250   # px/s², so schnell bleibt das rollende Knäuel liegen
 ROLL_BOUNCE = 0.5     # Anteil der Geschwindigkeit nach dem Abprallen an einer Wand
@@ -31,31 +31,22 @@ def half_width(kind: str, sprite: float) -> float:
     return BOX[kind][2] / 2 * sprite / 32
 
 
-@dataclass
-class Item:
-    kind: str
-    output: str | None = None   # None = im Inventar
-    offset: float = 0.0         # Mitte, gemessen ab der linken Kante der Arbeitsfläche
+class Body:
+    """Ein Möbelstück mit Schwerkraft. x/y ist Mitte unten wie bei der Katze."""
 
-    @property
-    def placed(self) -> bool:
-        return self.output is not None
-
-
-class Yarn:
-    """Wollknäuel mit eigener Physik. x/y ist Mitte unten wie bei der Katze."""
-
-    def __init__(self):
+    def __init__(self, bouncy: bool = False):
+        self.bouncy = bouncy
         self.placed = False
         self.held = False                    # hängt gerade am Mauszeiger
         self.x = self.y = 0.0
         self.vx = self.vy = 0.0
         self.platform: Platform | None = None   # None = in der Luft
         self._ride: Rect | None = None
+        self.pending: tuple[str, float] | None = None   # altes Format: (Monitor, Abstand)
 
     @property
     def resting(self) -> bool:
-        """Liegt oder rollt auf einer Kante (die Katze kann hin)."""
+        """Steht oder rollt auf einer Kante (die Katze kann hin)."""
         return self.placed and not self.held and self.platform is not None
 
     def drop(self, x: float, y: float) -> None:
@@ -64,6 +55,7 @@ class Yarn:
         self.x, self.y = x, y
         self.vx = self.vy = 0.0
         self.platform = self._ride = None
+        self.pending = None
 
     def hold(self, x: float, y: float) -> None:
         self.drop(x, y)
@@ -73,26 +65,38 @@ class Yarn:
         if not self.held:
             return
         self.held = False
-        self.vx = max(-MAX_THROW, min(MAX_THROW, vx))
-        self.vy = max(-MAX_THROW, min(MAX_THROW, vy))
+        if self.bouncy:
+            self.vx = max(-MAX_THROW, min(MAX_THROW, vx))
+            self.vy = max(-MAX_THROW, min(MAX_THROW, vy))
 
     def store(self) -> None:
         self.drop(0.0, 0.0)
         self.placed = False
 
     def kick(self, vx: float) -> None:
-        if self.resting:
+        if self.resting and self.bouncy:
             self.vx = vx
 
     def step(self, world: World, dt: float, half: float) -> None:
         if not self.placed or self.held:
             return
+        if self.pending is not None:
+            self._unpack(world)
         if world.output_at(self.x, self.y - 1) is None:
             self._respawn(world)
         elif self.platform is None:
             self._fly(world, dt, half)
         else:
             self._roll(world, dt, half)
+
+    def _unpack(self, world: World) -> None:
+        name, offset = self.pending
+        o = next((o for o in world.outputs if o.name == name), None)
+        if o is None:
+            self.pending = None
+            self._respawn(world)
+        else:
+            self.drop(o.work_area.x + offset, o.work_area.bottom - 1)
 
     def _respawn(self, world: World) -> None:
         o = next((o for o in world.outputs if o.name not in world.forbidden_outputs), world.outputs[0])
@@ -106,6 +110,8 @@ class Yarn:
         self.platform = p
         self.y = p.y
         self.vy = 0.0
+        if not self.bouncy:
+            self.vx = 0.0
         self._ride = None if p.is_floor else world.window_rect(p.owner)
 
     def _roll(self, world: World, dt: float, half: float) -> None:
@@ -159,7 +165,7 @@ class Yarn:
             if self.vy > 0:
                 p = self._landing(world, prev_y)
                 if p is not None:
-                    if self.vy > REST_VY:   # hüpft noch einmal
+                    if self.bouncy and self.vy > REST_VY:   # hüpft noch einmal
                         self.y, self.vy = p.y, -self.vy * DROP_BOUNCE
                     else:
                         self._land(world, p)
@@ -182,81 +188,65 @@ class Yarn:
 
 class Furniture:
     def __init__(self):
-        self.items = {k: Item(k) for k in KINDS if k != "yarn"}
-        self.yarn = Yarn()
+        self.bodies = {k: Body(k in BOUNCY) for k in KINDS}
         self.food = 0   # Portionen im Napf
         self._world_cache: tuple | None = None
 
-    def placed(self, kind: str) -> bool:
-        return self.yarn.placed if kind == "yarn" else self.items[kind].placed
+    @property
+    def yarn(self) -> Body:
+        return self.bodies["yarn"]
 
-    def _output(self, kind: str, world: World) -> Output | None:
-        if kind == "yarn":
-            return world.output_at(self.yarn.x, self.yarn.y - 1) if self.yarn.placed else None
-        name = self.items[kind].output
-        return None if name is None else next((o for o in world.outputs if o.name == name), None)
+    def placed(self, kind: str) -> bool:
+        return self.bodies[kind].placed
 
     def position(self, kind: str, world: World) -> tuple[float, float] | None:
-        """Mitte unten (wie bei der Katze); None im Inventar oder wenn der Monitor fehlt."""
-        o = self._output(kind, world)
-        if o is None:
+        """Mitte unten (wie bei der Katze); None im Inventar oder außerhalb aller Monitore."""
+        b = self.bodies[kind]
+        if not b.placed or b.pending is not None or world.output_at(b.x, b.y - 1) is None:
             return None
-        if kind == "yarn":
-            return self.yarn.x, self.yarn.y
-        wa = o.work_area
-        return min(max(wa.x + self.items[kind].offset, wa.x), wa.right), wa.bottom
+        return b.x, b.y
 
     def visible(self, kind: str, world: World) -> tuple[float, float] | None:
         """Wie position, aber nicht über einem Vollbildfenster (dort ist auch die Katze weg)."""
-        o = self._output(kind, world)
-        return None if o is None or o.name in world.fullscreen_outputs else self.position(kind, world)
+        pos = self.position(kind, world)
+        if pos is None or world.output_at(pos[0], pos[1] - 1).name in world.fullscreen_outputs:
+            return None
+        return pos
 
     def usable(self, kind: str, world: World) -> tuple[float, float] | None:
-        """Wie position, aber nur auf Monitoren, die die Katze betreten darf; das Knäuel
-        nur, solange es auf einer Kante liegt."""
-        o = self._output(kind, world)
-        if o is None or o.name in world.forbidden_outputs or (kind == "yarn" and not self.yarn.resting):
+        """Wie position, aber nur auf erlaubten Monitoren und solange es auf einer Kante steht."""
+        pos = self.position(kind, world)
+        if (pos is None or not self.bodies[kind].resting
+                or world.output_at(pos[0], pos[1] - 1).name in world.forbidden_outputs):
             return None
-        return self.position(kind, world)
+        return pos
+
+    def platform(self, kind: str) -> Platform | None:
+        return self.bodies[kind].platform
 
     def put(self, kind: str, world: World, x: float, y: float, half: float) -> bool:
-        """Mit der Maus verschieben. Bett und Napf kommen auf den Boden des Monitors unter
-        (x, y); das Knäuel hängt am Zeiger, bis release es loslässt. half = halbe Breite in px."""
-        if kind == "yarn":
-            self.yarn.hold(x, y)
-            return True
-        o = world.output_at(x, y)
-        if o is None or o.name in world.forbidden_outputs:
-            return False
-        wa = o.work_area
-        it = self.items[kind]
-        it.output = o.name
-        it.offset = min(max(x, wa.x + half), max(wa.x + half, wa.right - half)) - wa.x
+        """Mit der Maus halten (Mitte unten bei x, y), bis release es loslässt."""
+        self.bodies[kind].hold(x, y)
         return True
 
     def release(self, kind: str, vx: float, vy: float) -> None:
-        """Maus losgelassen: das Knäuel fliegt mit dieser Geschwindigkeit weiter."""
-        if kind == "yarn":
-            self.yarn.throw(vx, vy)
+        """Maus losgelassen: fällt herunter; das Knäuel fliegt mit Schwung weiter."""
+        self.bodies[kind].throw(vx, vy)
 
     def place(self, kind: str, world: World, x: float, y: float, half: float) -> bool:
-        """Aus dem Inventar aufstellen: bei (x, y), sonst mitten auf einen erlaubten Monitor."""
+        """Aus dem Inventar aufstellen: bei (x, y) fallen lassen, sonst mitten über
+        einem erlaubten Monitor."""
         o = world.output_at(x, y)
         if o is None or o.name in world.forbidden_outputs:
             o = next((o for o in world.outputs if o.name not in world.forbidden_outputs), None)
             if o is None:
                 return False
             x, y = o.geometry.x + o.geometry.w / 2, o.geometry.y + o.geometry.h / 2
-        if kind == "yarn":
-            self.yarn.drop(x, y)   # fällt auf die Kante darunter
-            return True
-        return self.put(kind, world, x, y, half)
+        self.bodies[kind].drop(x, y)
+        return True
 
     def store(self, kind: str) -> None:
-        if kind == "yarn":
-            self.yarn.store()
-        else:
-            self.items[kind].output = None
+        self.bodies[kind].store()
 
     def kick(self, vx: float) -> None:
         """Wollknäuel anstupsen."""
@@ -278,7 +268,8 @@ class Furniture:
         return self._world_cache[1]
 
     def tick(self, world: World, dt: float, sprite: float) -> None:
-        self.yarn.step(world, dt, half_width("yarn", sprite))
+        for kind, b in self.bodies.items():
+            b.step(world, dt, half_width(kind, sprite))
 
     def fill(self, world: World) -> bool:
         """Futter in den Napf kippen. False = kein erreichbarer Napf, direkt füttern."""
@@ -294,29 +285,32 @@ class Furniture:
         return True
 
     def to_dict(self) -> dict:
-        d = {k: {"output": it.output, "offset": it.offset} for k, it in self.items.items()}
-        d["yarn"] = {"x": self.yarn.x, "y": self.yarn.y} if self.yarn.placed else None
-        d["food"] = self.food
+        d: dict = {"food": self.food}
+        for k, b in self.bodies.items():
+            if not b.placed:
+                d[k] = None
+            elif b.pending is not None:   # Monitor noch nicht gesehen: unverändert lassen
+                d[k] = {"output": b.pending[0], "offset": b.pending[1]}
+            else:
+                d[k] = {"x": b.x, "y": b.y}
         return d
 
     @classmethod
     def from_dict(cls, d: dict) -> "Furniture":
+        """Beim Start fällt alles auf die Kante darunter; Fenster kennt die App da noch nicht."""
         f = cls()
-        for k in f.items:
+        for k, b in f.bodies.items():
             v = d.get(k)
             if not isinstance(v, dict):
                 continue
             try:
-                out = v.get("output")
-                f.items[k] = Item(k, None if out is None else str(out), float(v.get("offset", 0)))
-            except (TypeError, ValueError):
-                pass
-        v = d.get("yarn")
-        if isinstance(v, dict):
-            try:   # fällt beim Start auf die Kante darunter
-                f.yarn.drop(float(v["x"]), float(v["y"]) - 1)
+                if "x" in v:
+                    b.drop(float(v["x"]), float(v["y"]) - 1)
+                elif v.get("output") is not None:   # älteres Format: Boden eines Monitors
+                    b.drop(0.0, 0.0)
+                    b.pending = (str(v["output"]), float(v.get("offset", 0)))
             except (KeyError, TypeError, ValueError):
-                pass
+                b.store()
         try:
             f.food = max(0, min(BOWL_PORTIONS, int(d.get("food", 0))))
         except (TypeError, ValueError):

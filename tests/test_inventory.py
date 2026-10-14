@@ -15,7 +15,7 @@ def test_button_places_and_stores(qapp):
     dlg.storeRequested.connect(lambda k: asked.append(("store", k)))
     assert dlg._buttons["bed"].text() == "Aufstellen"
     dlg._buttons["bed"].click()
-    f.items["bowl"].output = "DP-3"
+    f.bodies["bowl"].placed = True
     dlg.refresh()
     assert dlg._buttons["bowl"].text() == "Einlagern"
     dlg._buttons["bowl"].click()

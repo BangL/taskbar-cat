@@ -123,9 +123,9 @@ def main(argv: list[str] | None = None) -> int:
             cat.feed()
 
     def place(kind: str) -> None:
-        # neben die Katze, auf der Seite, in die sie schaut; das Knäuel fällt von oben
-        furniture.place(kind, state["world"], cat.x + cat.facing * cat.sprite,
-                        cat.y - (cat.sprite if kind == "yarn" else 1), half_width(kind))
+        # neben die Katze, auf der Seite, in die sie schaut; fällt von dort auf die Kante darunter
+        furniture.place(kind, state["world"], cat.x + cat.facing * cat.sprite, cat.y - cat.sprite,
+                        half_width(kind))
         furniture_changed()
 
     def store(kind: str) -> None:

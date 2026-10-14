@@ -449,8 +449,9 @@ class Cat:
             self._approach(dt, world)
             return
         if self.state == "sleep":
-            if self._in_bed and self.furniture.usable("bed", world) != (self.x, self.y):
-                self._in_bed = False   # Bett weggezogen oder eingelagert
+            bed = self.furniture.usable("bed", world)
+            if self._in_bed and (bed is None or abs(bed[0] - self.x) > 1 or abs(bed[1] - self.y) > 1):
+                self._in_bed = False   # Bett weggezogen, eingelagert oder runtergefallen
             if self.needs.energy >= 80:
                 self._choose(world)
             return
@@ -758,32 +759,30 @@ class Cat:
         """Erst wenn eine ganze Portion reinpasst, sonst wäre sie danach träge."""
         return self.needs.satiety < max(20.0, 100 - self.cfg.feed_amount)
 
-    def _route(self, world: World, p: Platform | None, from_x: float, x: float,
-               floors_only: bool = False) -> Platform | None:
-        """Plattform bei x, die von p aus zu Fuß erreichbar ist (Nachbarn gleicher Höhe)."""
+    def _route(self, world: World, p: Platform | None, from_x: float, x: float) -> Platform | None:
+        """Plattform bei x, die von p aus zu Fuß erreichbar ist (Nachbarn gleicher Höhe,
+        auch über Monitorgrenzen)."""
         d = 1 if x >= from_x else -1
         while p is not None and not p.x1 <= x <= p.x2:
             p = world.neighbor(p, d)
-            if p is not None and ((floors_only and not p.is_floor) or not self._allowed(world, p)):
+            if p is not None and not self._allowed(world, p):
                 return None
         return p if p is not None and self._allowed(world, p) else None
 
-    def _floor_route(self, world: World, x: float) -> bool:
-        """Kommt sie zu Fuß über den Boden (auch über Monitorgrenzen) bis x?"""
-        p = self.platform
-        if p is None or not p.is_floor:
-            p = world.platform_below(self.x, self.y, floors_only=True)
-        return self._route(world, p, self.x, x, floors_only=True) is not None
-
-    def _yarn_spot(self, world: World) -> tuple[float, Platform] | None:
-        """Wo sie neben dem Knäuel stehen kann, auf seiner Kante oder deren Nachbarn."""
-        pos = self.furniture.usable("yarn", world)
+    def _spot(self, kind: str, world: World) -> tuple[float, Platform] | None:
+        """Wo sie stehen muss, um das Möbel zu benutzen: im Bett mittig, sonst daneben
+        (bevorzugt auf ihrer Seite), auf seiner Kante oder deren Nachbarn."""
+        pos = self.furniture.usable(kind, world)
         if pos is None:
             return None
-        reach = REACH["yarn"] * self.sprite / 32
-        side = -1 if self.x < pos[0] else 1
-        for x in (pos[0] + side * reach, pos[0] - side * reach):
-            q = self._route(world, self.furniture.yarn.platform, pos[0], x)
+        if kind == "bed":
+            spots = [pos[0]]
+        else:
+            reach = REACH[kind] * self.sprite / 32
+            side = -1 if self.x < pos[0] else 1
+            spots = [pos[0] + side * reach, pos[0] - side * reach]
+        for x in spots:
+            q = self._route(world, self.furniture.platform(kind), pos[0], x)
             if q is not None:
                 return x, q
         return None
@@ -802,24 +801,16 @@ class Cat:
             return "fall"
         return None
 
-    def _goal_x(self, kind: str, world: World) -> float | None:
-        """Wo sie stehen muss, um das Möbel zu benutzen; None = nicht erreichbar oder sinnlos."""
-        pos = self.furniture.usable(kind, world)
-        if pos is None or (kind == "bowl" and self.furniture.food <= 0):
+    def _target(self, kind: str, world: World) -> tuple[float, Platform, str] | None:
+        """Standplatz, seine Kante und der Weg dorthin; None = nicht erreichbar oder sinnlos."""
+        if kind == "bowl" and self.furniture.food <= 0:
             return None
-        if kind == "yarn":   # liegt womöglich auf einem Fenster
-            spot = self._yarn_spot(world)
-            return spot[0] if spot is not None and self._way(world, *spot) else None
-        if kind == "bed":
-            spots = [pos[0]]
-        else:  # daneben, bevorzugt auf der Seite, auf der sie gerade ist
-            reach = REACH[kind] * self.sprite / 32
-            side = -1 if self.x < pos[0] else 1
-            spots = [pos[0] + side * reach, pos[0] - side * reach]
-        return next((x for x in spots if self._floor_route(world, x)), None)
+        spot = self._spot(kind, world)
+        way = self._way(world, *spot) if spot is not None else None
+        return (*spot, way) if way is not None else None
 
     def _seek(self, kind: str, world: World) -> bool:
-        if self._goal_x(kind, world) is None:
+        if self._target(kind, world) is None:
             return False
         self._goal = kind
         self._set("seek", math.inf)
@@ -827,30 +818,25 @@ class Cat:
 
     def _go(self, dt: float, world: World) -> None:
         kind = self._goal
-        tx = self._goal_x(kind, world) if kind else None
-        yarn = self.furniture.yarn
-        if tx is None and kind == "yarn" and yarn.placed and not yarn.resting:
-            self._waiting = True   # fliegt oder hängt an der Maus: zuschauen
-            self.facing = 1 if yarn.x >= self.x else -1
+        goal = self._target(kind, world) if kind else None
+        body = self.furniture.bodies[kind] if kind else None
+        if goal is None and body is not None and body.placed and not body.resting:
+            self._waiting = True   # fällt, fliegt oder hängt an der Maus: zuschauen
+            self.facing = 1 if body.x >= self.x else -1
             return
         self._waiting = False
-        if tx is None:   # eingelagert, leer, Monitor gesperrt: wie ohne Möbel
+        if goal is None:   # eingelagert, leer, unerreichbar, Monitor gesperrt: wie ohne Möbel
             if kind == "bed":
                 self._goal = None
                 self._set("sleep", math.inf)
             else:
                 self._choose(world)
             return
-        if kind == "yarn":
-            _, q = self._yarn_spot(world)
-            way = self._way(world, tx, q)
-            if way == "jump":
-                self._jump_to(q, tx)
-                return
-            if way == "fall":
-                self._start_fall(floors_only=True)
-                return
-        elif not self.platform.is_floor:
+        tx, q, way = goal
+        if way == "jump":
+            self._jump_to(q, tx)
+            return
+        if way == "fall":
             self._start_fall(floors_only=True)
             return
         step = (CHASE_SPEED if kind == "yarn" else self._speed(self.cfg.walk_speed)) * dt
@@ -866,7 +852,7 @@ class Cat:
             if n is not None and self._allowed(world, n):
                 self.platform = n
                 self._ride_rect = None if n.is_floor else world.window_rect(n.owner)
-            else:   # sollte _floor_route verhindern; nicht festlaufen
+            else:   # sollte _route verhindern; nicht festlaufen
                 self.x = min(max(self.x, p.x1), p.x2)
                 self._goal = None
                 self._set("idle_sit", self.rng.uniform(3, 10))

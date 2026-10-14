@@ -34,63 +34,86 @@ def run(c, w, seconds, until=None):
 
 # --- Furniture ---
 
+def settle(f, w, seconds=3):
+    for _ in range(int(seconds / DT)):
+        f.tick(w, DT, SPRITE)
+
+
+def standing(w, kind, x, y=500, f=None):
+    """Bei (x, y) aufstellen und fallen lassen, bis es steht."""
+    f = f or Furniture()
+    f.place(kind, w, x, y, HALF)
+    settle(f, w)
+    assert f.bodies[kind].resting
+    return f
+
+
 def test_starts_in_inventory():
     f = Furniture()
-    assert not any(it.placed for it in f.items.values())
+    assert not any(f.placed(k) for k in f.bodies)
     assert f.position("bed", world()) is None
 
 
-def test_put_on_floor_of_output_under_point():
+def test_placed_furniture_falls_to_floor():
     w = world()
-    f = Furniture()
-    assert f.put("bed", w, 2500, 500, HALF)
-    assert f.items["bed"].output == "DP-4"
+    f = standing(w, "bed", 2500)
     assert f.position("bed", w) == (2500, 1080)
+    assert f.platform("bed").owner == "floor:DP-4"
 
 
-def test_put_keeps_inside_work_area():
+def test_furniture_lands_on_window_and_rides_along():
+    w = world(Win("a", Rect(300, 600, 600, 300), 1, False, False))
+    f = standing(w, "bowl", 500, 300)
+    assert f.position("bowl", w) == (500, 600)
+    moved = world(Win("a", Rect(400, 650, 600, 300), 1, False, False))
+    settle(f, moved, DT)
+    assert f.position("bowl", moved) == (600, 650)
+
+
+def test_furniture_falls_when_window_closes():
+    w = world(Win("a", Rect(300, 600, 600, 300), 1, False, False))
+    f = standing(w, "tree", 500, 300)
+    assert f.platform("tree").owner == "a"
+    settle(f, world())
+    assert f.position("tree", world()) == (500, 1080)
+
+
+def test_held_furniture_is_dropped_not_thrown():
     w = world()
-    f = Furniture()
-    f.put("bowl", w, 1919, 500, HALF)
-    assert f.position("bowl", w) == (1920 - HALF, 1080)
-
-
-def test_put_refuses_blocked_output():
-    w = world(blocked=["DP-4"])
-    f = Furniture()
-    assert not f.put("bed", w, 2500, 500, HALF)
-    assert not f.items["bed"].placed
+    f = standing(w, "bed", 500)
+    f.put("bed", w, 800, 300, HALF)
+    assert f.bodies["bed"].held and f.usable("bed", w) is None
+    f.release("bed", 2000, -500)
+    settle(f, w)
+    assert f.position("bed", w) == (800, 1080)
 
 
 def test_place_falls_back_to_free_output():
     w = world(blocked=["DP-4"])
     f = Furniture()
     assert f.place("bed", w, 2500, 500, HALF)
-    assert f.items["bed"].output == "DP-3"
+    settle(f, w)
+    assert f.platform("bed").owner == "floor:DP-3"
 
 
 def test_hidden_on_fullscreen_but_position_kept():
     w = world(Win("v", Rect(0, 0, 1920, 1080), 1, True, False))
-    f = Furniture()
-    f.put("bed", world(), 500, 500, HALF)
+    f = standing(world(), "bed", 500)
     assert f.position("bed", w) is not None
     assert f.visible("bed", w) is None
     assert f.usable("bed", w) is None
 
 
-def test_missing_output_makes_it_unusable():
-    f = Furniture()
-    f.put("bed", world(), 2500, 500, HALF)
-    one = World([Output("DP-3", Rect(0, 0, 1920, 1080), Rect(0, 44, 1920, 1036))], [])
-    assert f.usable("bed", one) is None
-    assert f.items["bed"].placed
+def test_unusable_on_blocked_output():
+    f = standing(world(), "bed", 2500)
+    assert f.usable("bed", world(blocked=["DP-4"])) is None
 
 
 def test_fill_needs_usable_bowl():
     w = world()
     f = Furniture()
     assert not f.fill(w)
-    f.put("bowl", w, 500, 500, HALF)
+    standing(w, "bowl", 500, f=f)
     for _ in range(BOWL_PORTIONS + 2):
         assert f.fill(w)
     assert f.food == BOWL_PORTIONS
@@ -107,29 +130,37 @@ def test_eat_takes_one_portion():
 
 def test_roundtrip(tmp_path):
     w = world()
-    f = Furniture()
-    f.put("bed", w, 2500, 500, HALF)
+    f = standing(w, "bed", 2500)
     f.food = 2
     path = tmp_path / "furniture.json"
     storage.save(path, f)
     g = storage.load_furniture(path)
+    settle(g, w)
     assert g.position("bed", w) == (2500, 1080)
-    assert not g.items["bowl"].placed
+    assert not g.placed("bowl")
     assert g.food == 2
 
 
+def test_old_format_lands_on_its_monitor_floor():
+    w = world()
+    f = Furniture.from_dict({"bed": {"output": "DP-4", "offset": 300}, "bowl": {"output": None}})
+    assert f.placed("bed") and not f.placed("bowl")
+    assert f.to_dict()["bed"] == {"output": "DP-4", "offset": 300}   # vor dem ersten Tick unverändert
+    settle(f, w)
+    assert f.position("bed", w) == (2220, 1080)
+
+
 def test_from_dict_ignores_garbage():
-    f = Furniture.from_dict({"bed": "x", "bowl": {"output": "DP-3", "offset": "nope"}, "food": 99})
-    assert not f.items["bed"].placed
-    assert not f.items["bowl"].placed
+    f = Furniture.from_dict({"bed": "x", "bowl": {"output": "DP-3", "offset": "nope"},
+                             "tree": {"x": "?"}, "food": 99})
+    assert not any(f.placed(k) for k in f.bodies)
     assert f.food == BOWL_PORTIONS
 
 
 # --- Katze und Napf ---
 
-def bowl_at(w, x, food=1):
-    f = Furniture()
-    f.put("bowl", w, x, 500, HALF)
+def bowl_at(w, x, food=1, y=500):
+    f = standing(w, "bowl", x, y)
     f.food = food
     return f
 
@@ -210,10 +241,8 @@ def test_sick_cat_gets_up_for_food():
 
 # --- Katze und Bett ---
 
-def bed_at(w, x):
-    f = Furniture()
-    f.put("bed", w, x, 500, HALF)
-    return f
+def bed_at(w, x, y=500):
+    return standing(w, "bed", x, y)
 
 
 def test_tired_cat_sleeps_in_bed():
@@ -273,17 +302,8 @@ def test_drag_out_of_bed():
 
 # --- Wollknäuel ---
 
-def settle(f, w, seconds=3):
-    for _ in range(int(seconds / DT)):
-        f.tick(w, DT, SPRITE)
-
-
 def yarn_at(w, x, y=1000):
-    f = Furniture()
-    f.place("yarn", w, x, y, HALF)
-    settle(f, w)
-    assert f.yarn.resting
-    return f
+    return standing(w, "yarn", x, y)
 
 
 def test_placed_yarn_falls_to_floor():
@@ -476,10 +496,8 @@ def test_yarn_in_inventory_changes_nothing():
 
 # --- Kratzbaum ---
 
-def tree_at(w, x):
-    f = Furniture()
-    f.put("tree", w, x, 500, HALF)
-    return f
+def tree_at(w, x, y=500):
+    return standing(w, "tree", x, y)
 
 
 def tree_cfg(p):
@@ -511,6 +529,9 @@ def test_tree_world_is_cached():
     f = tree_at(w, 1000)
     assert f.world_with(w, SPRITE) is f.world_with(w, SPRITE)
     f.put("tree", w, 1200, 500, HALF)
+    assert f.world_with(w, SPRITE) is w   # in der Hand: keine Liegefläche
+    f.release("tree", 0, 0)
+    settle(f, w)
     assert [p for p in f.world_with(w, SPRITE).platforms if p.owner == "furniture:tree"][0].x1 > 1000
 
 
@@ -546,12 +567,7 @@ def test_cat_rides_tree_and_falls_when_stored():
     c.cfg = tree_cfg(1)
     assert tree_run(c, f, w, 120, until=lambda c: c.platform is not None
                     and c.platform.owner == "furniture:tree" and c.state not in ("jump", "fall"))
-    c._set("idle_sit", 100)   # still sitzen, damit nur das Mitfahren zählt
-    x = c.x
-    f.put("tree", w, 1400, 500, HALF)
-    tree_run(c, f, w, DT)
-    assert c.platform.owner == "furniture:tree"
-    assert abs(c.x - (x + 100)) < 1e-6
+    c.cfg = tree_cfg(0)
     f.store("tree")
     assert tree_run(c, f, w, 5, until=lambda c: c.platform is not None and c.platform.is_floor)
 
@@ -572,3 +588,39 @@ def test_no_tree_visits_when_disabled():
     c.cfg = tree_cfg(0)
     assert not tree_run(c, f, w, 60, until=lambda c: c.state == "scratch")
 
+
+
+def test_cat_rides_tree_standing_on_moving_window():
+    w = world(Win("a", Rect(1000, 700, 800, 380), 1, False, False))
+    f = tree_at(w, 1300, 300)
+    assert f.platform("tree").owner == "a"
+    c = cat_with(w, f)
+    c.cfg = tree_cfg(1)
+    assert tree_run(c, f, w, 120, until=lambda c: c.platform is not None
+                    and c.platform.owner == "furniture:tree" and c.state not in ("jump", "fall"))
+    c._set("idle_sit", 100)   # still sitzen, damit nur das Mitfahren zählt
+    x = c.x
+    moved = world(Win("a", Rect(1100, 700, 800, 380), 1, False, False))
+    tree_run(c, f, moved, 0.2)
+    assert f.position("tree", moved)[0] == 1400
+    assert c.platform.owner == "furniture:tree"
+    assert abs(c.x - (x + 100)) < 1e-6
+
+
+def test_cat_sleeps_in_bed_on_window():
+    w = world(Win("a", Rect(1000, 800, 800, 280), 1, False, False))
+    f = bed_at(w, 1300, 300)
+    assert f.platform("bed").owner == "a"
+    c = cat_with(w, f, energy=10)
+    assert run(c, w, 30, until=lambda c: c.in_bed)
+    assert c.platform.owner == "a"
+
+
+def test_cat_waits_while_bowl_falls():
+    w = world(Win("a", Rect(1000, 600, 800, 300), 1, False, False))
+    f = bowl_at(w, 1300, y=300)
+    c = cat_with(w, f, satiety=30)
+    assert run(c, w, 30, until=lambda c: c.state == "seek")
+    run(c, world(), DT)   # Fenster weg: der Napf fällt
+    assert c.state == "seek" and c.frame_key(0)[0] == "sit"
+    assert run(c, world(), 30, until=lambda c: c.state == "eat")
