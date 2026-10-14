@@ -32,6 +32,17 @@ Damit liegt der Startbefehl `taskbar-cat` in `/usr/bin`, der Startmenü-Eintrag
 und das Icon sind mit installiert; der Autostart läuft über den Haken im Menü
 der Katze.
 
+Debian und Ubuntu: `.deb` aus den
+[Releases](https://github.com/BangL/taskbar-cat/releases) herunterladen und
+
+    sudo apt install ./taskbar-cat_*_all.deb
+
+Es braucht Plasma 6 mit KWin unter Wayland, also Debian 13 oder Ubuntu 24.10
+und neuer. Selbst bauen geht auch:
+
+    python3 -m build --wheel
+    packaging/build-deb.sh
+
 ### Aus dem Clone
 
 Desktop-Eintrag und Icon für den aktuellen Benutzer, ohne root:
@@ -109,3 +120,15 @@ Einbau in fastfetch (`~/.config/fastfetch/config.jsonc`):
 ## Lizenz
 
 MIT, siehe `LICENSE`.
+
+## Release bauen
+
+Ein Tag mit `v`-Präfix startet den Workflow `.github/workflows/release.yml`:
+Tests, Wheel, sdist und `.deb` werden gebaut und als GitHub-Release mit
+automatisch erzeugten Notes veröffentlicht.
+
+    # Version in pyproject.toml anheben, committen, dann:
+    git tag -a v1.4.0 -m "Taskbar-Cat 1.4.0"
+    git push origin v1.4.0
+
+Der Workflow bricht ab, wenn der Tag nicht zur Version in `pyproject.toml` passt.

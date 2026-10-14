@@ -20,6 +20,8 @@ Projekt: `~/Projects/taskbar-cat/`
 ```
 pyproject.toml               Paket + Startbefehl `taskbar-cat`
 install.sh                   Desktop-Eintrag/Icon benutzerlokal, Pfad zur Install-Zeit
+packaging/build-deb.sh       .deb aus dem Wheel (Architecture: all, dist-packages)
+.github/workflows/release.yml  Tag v* -> Tests, Wheel, sdist, .deb, GitHub-Release
 data/taskbar-cat.desktop     Vorlage ohne festen Pfad (Exec=taskbar-cat)
 taskbar_cat/
   kwin/taskbar-cat-sensor.js KWin-Script, Fenster-Sensor (Paketdatei)

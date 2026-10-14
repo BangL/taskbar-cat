@@ -1,0 +1,63 @@
+name: Release
+
+# Tag pushen loest alles aus:  git tag -a v1.4.0 -m ... && git push origin v1.4.0
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Systempakete
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            python3-pyqt6 python3-pyqt6.qtquick python3-pytest \
+            python3-build python3-venv python3-pip \
+            dpkg-dev fakeroot libegl1 libxkbcommon0
+
+      - name: Version gegen Tag pruefen
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          ver=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          echo "Tag $tag, pyproject $ver"
+          test "$tag" = "$ver" || { echo "::error::Tag und Version in pyproject.toml weichen ab"; exit 1; }
+
+      - name: Tests
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python3 -m pytest -q
+
+      - name: Wheel und sdist
+        # mit Build-Isolation: pyproject verlangt setuptools>=77, Ubuntu liefert aelteres
+        run: python3 -m build
+
+      - name: Deb bauen
+        run: packaging/build-deb.sh
+
+      - name: Deb pruefen
+        run: |
+          deb=$(ls dist/taskbar-cat_*_all.deb)
+          dpkg-deb --info "$deb"
+          dpkg-deb --contents "$deb"
+
+      - name: Abhaengigkeiten des Debs aufloesbar?
+        # Nur ein Hinweis: der Runner ist oft aelter als die Zielsysteme,
+        # fehlende Pakete hier heissen nicht, dass das Deb unbrauchbar ist.
+        continue-on-error: true
+        run: sudo apt-get install --simulate ./dist/taskbar-cat_*_all.deb
+
+      - name: Release anlegen
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "Taskbar-Cat ${GITHUB_REF_NAME#v}" \
+            --generate-notes \
+            dist/*.whl dist/*.tar.gz dist/taskbar-cat_*_all.deb
