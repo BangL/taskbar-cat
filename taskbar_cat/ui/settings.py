@@ -4,7 +4,7 @@ from PyQt6.QtWidgets import (QCheckBox, QColorDialog, QDialog, QDialogButtonBox,
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtGui import QColor
 
-from ..config import SPECS, Config
+from ..config import FUR_PRESETS, SPECS, Config
 from ..guard import guarded
 
 GROUPS = (
@@ -32,9 +32,6 @@ def screen_choices(app=None) -> list[tuple[str, str]]:
             label += f", {model}"
         out.append((s.name(), label))
     return out
-
-
-FUR_PRESETS = ("#e8913a", "#5c3a21", "#2e2e2e", "#d8d8d8", "#8899aa", "#f2ebdd", "#c44b3a", "#6b8e6b")
 
 
 class ColorButton(QPushButton):
@@ -153,18 +150,23 @@ class SettingsDialog(QDialog):
         w.valueChanged.connect(guarded(lambda v, n=name: self._apply(n, v)))
         return w
 
+    def show_value(self, name: str) -> None:
+        """Von außen geänderten Wert anzeigen, ohne ihn erneut zu melden."""
+        w = self._widgets[name]
+        value = getattr(self._cfg, name)
+        w.blockSignals(True)
+        w.setChecked(bool(value)) if isinstance(w, QCheckBox) else w.setValue(value)
+        w.blockSignals(False)
+
     def _apply(self, name: str, value) -> None:
         self._cfg.set(name, value)
         self.changed.emit(name)
 
     def restore_defaults(self, checked: bool = False) -> None:   # clicked liefert checked mit
         defaults = Config()
-        for name, w in self._widgets.items():
-            value = getattr(defaults, name)
-            w.blockSignals(True)
-            w.setChecked(bool(value)) if isinstance(w, QCheckBox) else w.setValue(value)
-            w.blockSignals(False)
-            self._apply(name, value)
+        for name in self._widgets:
+            self._apply(name, getattr(defaults, name))
+            self.show_value(name)
         for b in self._screens.values():
             _set_checked(b, True)
         self._apply("blocked_outputs", defaults.blocked_outputs)

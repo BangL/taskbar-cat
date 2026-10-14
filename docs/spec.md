@@ -85,7 +85,7 @@ Stimmung:
 - **krank**: beide < 10, oder einer der Werte länger als 2 h (Session-Zeit) < 10. Grünliche Färbung, bleibt auf dem Boden, springt nicht auf Fenster, liegt meist.
 - Erholung: traurig/krank endet, sobald beide Werte >= 40.
 
-Verhaltenszustände: `idle_sit`, `walk`, `approach`, `jump`, `fall`, `climb`, `hang`, `sleep`, `eat`, `purr`, `dragged`, `thrown`, `sick_lie`, `hidden`.
+Verhaltenszustände: `idle_sit`, `walk`, `approach`, `jump`, `fall`, `climb`, `hang`, `sleep`, `eat`, `purr`, `dragged`, `thrown`, `sick_lie`, `hidden`, `beamed`, `abducted`.
 - Zufällige Wahl zwischen sitzen, laufen, Sprung zu erreichbarer Plattform; bei Energie < 20 schlafen bis 80.
 - Plattform verschwindet/bewegt sich: fährt mit, wenn das Fenster bewegt wird (Delta der Fensterposition übernehmen); verschwindet die Kante unter ihr -> `fall`.
 - Physik: Schwerkraft 2500 px/s², Sprünge als ballistische Kurve, Landung auf erster Plattform, deren y überquert wird.
@@ -95,12 +95,13 @@ Verhaltenszustände: `idle_sit`, `walk`, `approach`, `jump`, `fall`, `climb`, `h
 - **Unterkante:** Unterkante 113-300 px über der Katze -> hochspringen, 1,5-3 s zappelnd hängen, dann fallen.
 - **Spielen (Mauszeiger fangen):** KWin-Sensor meldet `workspace.cursorPos` (max. ~30/s, D-Bus-Methode `cursor(s "x y")`). Fuchteln = Cursor <= 300 px um die Katzenmitte, >= 500 px Weg und >= 2 Richtungswechsel in 1 s, nicht direkt über dem Sprite (das ist Streicheln). Spielmodus hält 2 s nach dem letzten Fuchteln. Cursor über ihr (|dx| < 120, 120-350 px höher) -> Sprung mit Pfotenhieb; Cursor < 200 px -> 0,5-1 s lauern, dann Sprung mit Scheitel am Cursor; sitzt sie auf einer Kante und der Cursor ist mehr als 40 px unter ihren Pfoten, zählt nur der seitliche Abstand (< 200 px) und sie springt hinunter (die eigene Kante wird beim Landen übersprungen, vom Boden aus gibt es keinen Sprung nach unten); sonst hinrennen (150 px/s). Cursor im Sprite während des Sprungs = gefangen: Zuneigung +3, nach Landung 1,2 s Jubel. Kein Spiel bei krank, Energie < 20, schlafen, fressen, gezogen, klettern, hängen.
 - Krank: kein Springen, Klettern, Hängen; beim Erkranken während Klettern/Hängen -> fallen.
+- **UFO (Easter Egg, `ufo.py`):** ohne Menüpunkt oder Einstellung. Pro Tick mit Wahrscheinlichkeit 0,25/h (eigener Zufallsgenerator, damit das übrige Verhalten unverändert bleibt), nur wenn die Katze ruhig auf einer Kante ist (sitzen, laufen, schlafen, schnurren, jubeln), der Bildschirm nicht gesperrt ist und der letzte Besuch mindestens 1 h her ist. Ablauf: UFO fliegt von einer Seite über die Katze (260 px über den Pfoten), Traktorstrahl zieht sie zappelnd hoch (`beamed`), UFO fliegt mit ihr davon (`abducted`, unsichtbar), kommt nach 4-7 s von der anderen Seite zurück und setzt sie auf dem Boden ab, dann fliegt es weg. Dabei wird die Fellfarbe gewechselt: Farbton um 60-300 Grad gedreht, Sättigung und Helligkeit bleiben; graues Fell (Sättigung < 0,15) bekommt eine andere Vorgabe-Farbe. Die App übernimmt die Farbe wie eine Änderung im Einstellungsdialog (speichern, Atlas, Tray, offener Dialog). Solange das UFO sie hat, wirken Ziehen, Füttern, Streicheln, Schlafen und Zum-Boden-Rufen nicht.
 - Monitorwechsel: über benachbarte Plattformen (Boden ist über Monitorgrenzen zusammenhängend, da gleiche Höhe; falls nicht, Sprung).
 
 ### 4. UI
 
 - **Overlay** (`ui/overlay.qml` + `overlay.py`): je Monitor ein `LayerShell.Window`, Layer `overlay`, Anker alle Seiten, `exclusionZone: -1` (ignoriert Panels, Overlay deckt ganzen Monitor), keine Tastatur-Interaktivität, transparent. Input-Region (`QWindow.setMask`) nur das Katzen-Rechteck (+8 px), sonst gehen Klicks durch. Nur das Overlay des Monitors, auf dem die Katze ist, zeigt sie (beim Übergang beide).
-- **Sprites** (`sprites.py`): 32x32-Pixel-Art, Darstellung 3x skaliert (Nearest Neighbour). Animationen: sitzen, laufen (4 Frames), springen, fallen, schlafen (Zzz), fressen (Napf), schnurren (Herz), zappeln, liegen (krank), klettern (4 Frames), hängen (2 Frames), lauern, Pfotenhieb, Jubel (je 2 Frames), Varianten für traurig (Ohren) und krank (Tönung). Blickrichtung durch Spiegeln. PNG wird beim ersten Start erzeugt und gecacht.
+- **Sprites** (`sprites.py`): 32x32-Pixel-Art, Darstellung 3x skaliert (Nearest Neighbour). Animationen: sitzen, laufen (4 Frames), springen, fallen, schlafen (Zzz), fressen (Napf), schnurren (Herz), zappeln, liegen (krank), klettern (4 Frames), hängen (2 Frames), lauern, Pfotenhieb, Jubel (je 2 Frames), Varianten für traurig (Ohren) und krank (Tönung). Blickrichtung durch Spiegeln. PNG wird beim ersten Start erzeugt und gecacht. UFO (32x16) und Traktorstrahl (Trapez mit Verlauf, gestreckt) liegen als eigene PNGs daneben.
 - Kopf (`_Pen.muzzle`): rosa Nase, darunter drei kurze Striche als Mund (die Winkel höher als die Mitte, sonst wirkt sie traurig) und zwei Schnurrhaare. Keine helle Maulfläche - die lässt die Katze bei 32 Pixeln wie einen Fuchs aussehen.
 - **Interaktion:**
   - Linksklick: streicheln (+2 Zuneigung).
@@ -137,6 +138,7 @@ Einstellungen: `$XDG_CONFIG_HOME/taskbar-cat/config.json`, geschrieben bei jeder
 - `pytest` mit fester, injizierter Uhr.
 - `world.py`: Boden bei Panel unten/oben/fehlend, Leisten-Oberkante als Plattform ohne Wände/Decken, maximierte Fenster nicht begehbar, Verdeckung schneidet Kanten, Mini-Stücke verworfen, Vollbild sperrt Monitor, Erreichbarkeit.
 - `cat.py`: Verfallsraten, Füttern/Streicheln, Stimmungswechsel inkl. 2-h-Regel und Erholung, Einfrieren bei Sperre, Mitfahren mit Fenster, Fallen bei Kantenverlust, Wurf landet auf Plattform.
+- `ufo.py`: neue Fellfarbe (Farbton gedreht, Grau -> Vorgabe), kompletter Ablauf, Farbe wird genau einmal abgeholt, keine Interaktion während der Entführung, kein UFO bei Sperre oder Beschäftigung, Ruhezeit nach einem Besuch, UFO-Zufall verschiebt das übrige Verhalten nicht.
 - `storage.py`: Roundtrip, kaputte Datei.
 - Manuell: Overlay, Input-Durchreichung, KWin-Script, Tray. Argumente über `argparse` (`--help`, `--version`, `--debug`; unbekannte Optionen -> Exit 2), ebenso `taskbar_cat.bus` und `taskbar_cat.sprites`. Debug-Flag `--debug` zeichnet Plattformen (gelb/magenta), Wände (cyan) und Decken (rot) als Linien ins Overlay.
 

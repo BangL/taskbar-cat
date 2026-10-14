@@ -4,6 +4,8 @@ import re
 from dataclasses import asdict, dataclass, field, fields
 
 HEX_COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
+# Katzenfarben: Standardfarben im Farbwähler und Auswahl für graues Fell nach dem UFO
+FUR_PRESETS = ("#e8913a", "#5c3a21", "#2e2e2e", "#d8d8d8", "#8899aa", "#f2ebdd", "#c44b3a", "#6b8e6b")
 
 
 @dataclass(frozen=True)

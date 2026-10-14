@@ -88,7 +88,7 @@ def main(argv: list[str] | None = None) -> int:
 
     engine = QQmlEngine()
     overlays = OverlayManager(engine, sprites.ensure_atlas(paths.cache_dir(), cfg.fur_color),
-                              debug or cfg.debug_lines)
+                              debug or cfg.debug_lines, sprites.ensure_ufo(paths.cache_dir()))
     tray = CatTray(cat, cfg.fur_color)
 
     overlays.petted.connect(guarded(cat.pet))
@@ -142,6 +142,12 @@ def main(argv: list[str] | None = None) -> int:
         sprite = (cat.x - size / 2, cat.y - size, cat.x + size / 2, cat.y)
         wiggling = wiggle.is_wiggling(cat.x, cat.y - size / 2, now, avoid=sprite)
         cat.tick(dt, state["world"], bus.locked, cursor=wiggle.last, wiggling=wiggling)
+        fur = cat.take_new_fur()
+        if fur is not None:  # vom UFO umgefärbt: wie eine Änderung im Dialog behandeln
+            cfg.set("fur_color", fur)
+            config_changed("fur_color")
+            if state.get("dialog") is not None:
+                state["dialog"].show_value("fur_color")
         overlays.render(cat, state["world"], now)
 
     def save():

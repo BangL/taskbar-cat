@@ -6,9 +6,10 @@ für die Kontur frei. Gespiegelt wird beim Zeichnen im Overlay.
 from pathlib import Path
 
 from PyQt6.QtCore import QPointF, QRectF, Qt
-from PyQt6.QtGui import QColor, QImage, QPainter, QPen, QPolygonF
+from PyQt6.QtGui import QColor, QImage, QLinearGradient, QPainter, QPen, QPolygonF
 
 ATLAS_VERSION = 5
+UFO_VERSION = 1
 FRAME = 32
 ANIMS = {"sit": 2, "walk": 4, "jump": 1, "fall": 1, "sleep": 2, "eat": 2, "purr": 2, "dragged": 2, "lie": 2, "climb": 4, "hang": 2,
          "crouch": 2, "swipe": 2, "cheer": 2}
@@ -347,6 +348,51 @@ def ensure_atlas(cache_dir: Path, fur: QColor | str = FUR_DEFAULT) -> Path:
         cache_dir.mkdir(parents=True, exist_ok=True)
         render_atlas(tint).save(str(path))
     return path
+
+
+def render_ufo() -> QImage:
+    """Untertasse 32x16: Glaskuppel, graue Scheibe, bunte Lichter."""
+    img = QImage(32, 16, QImage.Format.Format_ARGB32)
+    img.fill(Qt.GlobalColor.transparent)
+    p = QPainter(img)
+    p.setPen(QColor("#2A2F3A"))
+    p.setBrush(QColor("#9FE8FF"))
+    p.drawEllipse(10, 1, 11, 9)
+    p.fillRect(13, 3, 2, 2, QColor("#FFFFFF"))
+    p.setBrush(QColor("#A9B2C3"))
+    p.drawEllipse(1, 6, 29, 7)
+    p.setPen(Qt.PenStyle.NoPen)
+    p.setBrush(QColor("#6C7690"))
+    p.drawRect(4, 10, 24, 2)
+    for i, c in enumerate(("#FF5A5A", "#FFE15A", "#5AFF8C", "#5AC8FF", "#FF5AE6")):
+        p.fillRect(5 + i * 5, 9, 2, 2, QColor(c))
+    p.end()
+    return img
+
+
+def render_beam() -> QImage:
+    """Traktorstrahl: Trapez, oben schmal, nach unten durchsichtiger. Wird gestreckt."""
+    img = QImage(64, 128, QImage.Format.Format_ARGB32)
+    img.fill(Qt.GlobalColor.transparent)
+    p = QPainter(img)
+    g = QLinearGradient(0, 0, 0, 128)
+    g.setColorAt(0, QColor(200, 255, 170, 230))
+    g.setColorAt(1, QColor(200, 255, 170, 90))
+    p.setPen(Qt.PenStyle.NoPen)
+    p.setBrush(g)
+    p.drawPolygon(QPolygonF([QPointF(22, 0), QPointF(42, 0), QPointF(64, 128), QPointF(0, 128)]))
+    p.end()
+    return img
+
+
+def ensure_ufo(cache_dir: Path) -> tuple[Path, Path]:
+    """UFO und Strahl als PNG zwischenspeichern."""
+    out = (cache_dir / f"ufo-v{UFO_VERSION}.png", cache_dir / f"beam-v{UFO_VERSION}.png")
+    for path, render in zip(out, (render_ufo, render_beam)):
+        if not path.exists():
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            render().save(str(path))
+    return out
 
 
 def head_icon(mood: str, fur: QColor | str = FUR_DEFAULT) -> QImage:

@@ -26,6 +26,18 @@ Window {
     property bool catVisible: false
     property int spriteSize: 96
     property var platforms: []
+    // UFO-Easter-Egg (Mitte der Untertasse, Strahl von beamTop bis beamBottom)
+    property url ufoSource
+    property url beamSource
+    property bool ufoVisible: false
+    property real ufoX: 0
+    property real ufoY: 0
+    property int ufoWidth: 150
+    property real ufoTime: 0
+    property bool beamOn: false
+    property real beamTop: 0
+    property real beamBottom: 0
+    property real beamWidth: 120
 
     signal catPressed(real x, real y, int button)
     signal catMoved(real x, real y, int buttons)
@@ -44,6 +56,16 @@ Window {
     }
 
     Image {
+        source: win.beamSource
+        visible: win.ufoVisible && win.beamOn
+        opacity: 0.55 + 0.15 * Math.sin(win.ufoTime * 12)
+        x: Math.round(win.ufoX - win.beamWidth / 2)
+        y: Math.round(win.beamTop)
+        width: win.beamWidth
+        height: Math.max(0, win.beamBottom - win.beamTop)
+    }
+
+    Image {
         id: sprite
         source: win.atlas
         sourceClipRect: Qt.rect(win.srcX, win.srcY, 32, 32)
@@ -54,6 +76,16 @@ Window {
         smooth: false
         mirror: win.flip
         visible: win.catVisible
+    }
+
+    Image {
+        source: win.ufoSource
+        visible: win.ufoVisible
+        x: Math.round(win.ufoX - width / 2)
+        y: Math.round(win.ufoY - height / 2 + 3 * Math.sin(win.ufoTime * 4))
+        width: win.ufoWidth
+        height: win.ufoWidth / 2
+        smooth: false
     }
 
     MouseArea {
