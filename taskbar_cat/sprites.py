@@ -8,7 +8,7 @@ from pathlib import Path
 from PyQt6.QtCore import QPointF, QRectF, Qt
 from PyQt6.QtGui import QColor, QImage, QPainter, QPen, QPolygonF
 
-ATLAS_VERSION = 4
+ATLAS_VERSION = 5
 FRAME = 32
 ANIMS = {"sit": 2, "walk": 4, "jump": 1, "fall": 1, "sleep": 2, "eat": 2, "purr": 2, "dragged": 2, "lie": 2, "climb": 4, "hang": 2,
          "crouch": 2, "swipe": 2, "cheer": 2}
@@ -58,10 +58,10 @@ class Palette:
         else:
             self.dark = _hsv(base, dh=-5, fs=1.06, fv=0.595)
             self.outline = _hsv(base, dh=-5.4, fs=0.88, fv=0.254)
-        # Brust und Schnauze: fast weiß mit einem Hauch Fellton, bei weißem Fell andersherum
-        pale = val > 0.9 and base.saturationF() < 0.15
-        self.light = _hsv(base, fs=0.12, fv=0.86) if pale else _mix(base, QColor("#FFFFFF"), 0.85)
         self.eye = EYE if val > 0.42 else EYE_PALE
+        # Schnauzenstriche und Schnurrhaare: auf hellem Fell dunkel, auf dunklem
+        # aufgehellt (nicht reinweiß, sonst sieht die schwarze Katze aus wie ein Walross)
+        self.whisker = self.dark if val > 0.5 else _mix(base, QColor("#FFFFFF"), 0.55)
 
 
 def frame_origin(anim: str, mood: str, frame: int) -> tuple[int, int]:
@@ -78,8 +78,8 @@ class _Pen:
         self.palette = Palette(fur, mood)
         self.fur = self.palette.fur
         self.dark = self.palette.dark
-        self.light = self.palette.light
         self.eye = self.palette.eye
+        self.whisker = self.palette.whisker
 
     def ell(self, cx, cy, rx, ry, color=None):
         self.p.setPen(Qt.PenStyle.NoPen)
@@ -118,8 +118,7 @@ class _Pen:
             self.poly([(cx - 4, cy - 3), (cx - 9, cy - 1), (cx - 4, cy)])
             self.poly([(cx + 4, cy - 3), (cx + 9, cy - 1), (cx + 4, cy)])
         self.ell(cx, cy, 6, 5)
-        self.rect(cx + 2, cy + 1, 4, 2, self.light)
-        self.px(cx + 5, cy, NOSE)
+        self.muzzle(cx, cy)
         if eyes == "closed" or (eyes == "open" and self.mood != "normal"):
             self.rect(cx - 2, cy - 1 + (self.mood != "normal"), 2, 1, self.eye)
             self.rect(cx + 2, cy - 1 + (self.mood != "normal"), 2, 1, self.eye)
@@ -129,9 +128,17 @@ class _Pen:
         else:
             self.rect(cx - 2, cy - 2, 1, 2, self.eye)
             self.rect(cx + 2, cy - 2, 1, 2, self.eye)
-        # Schnurrhaare
-        self.px(cx + 7, cy + 1, self.dark)
-        self.px(cx + 7, cy + 3, self.dark)
+
+    def muzzle(self, cx, cy):
+        """Rosa Nase, darunter drei kurze Striche als Mund, dazu zwei Schnurrhaare.
+        Die Mundwinkel liegen höher als die Mitte, sonst guckt sie dauertraurig.
+        Keine helle Fläche: die macht aus der Katze einen Fuchs."""
+        self.rect(cx, cy, 2, 1, NOSE)
+        self.px(cx, cy + 1, self.whisker)
+        self.px(cx + 2, cy + 1, self.whisker)
+        self.px(cx + 1, cy + 2, self.whisker)
+        self.rect(cx + 5, cy - 1, 2, 1, self.whisker)
+        self.rect(cx + 5, cy + 1, 2, 1, self.whisker)
 
     def stripes(self, pts):
         for x, y in pts:

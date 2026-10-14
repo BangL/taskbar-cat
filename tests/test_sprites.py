@@ -1,4 +1,4 @@
-from PyQt6.QtGui import QImage
+from PyQt6.QtGui import QColor, QImage
 
 from taskbar_cat import sprites
 
@@ -54,6 +54,19 @@ def test_cached_atlas_reused(qapp, tmp_path):
     assert p.stat().st_mtime_ns == m
 
 
+def test_whiskers_contrast_with_the_fur(qapp):
+    assert sprites.Palette("#e8913a").whisker.value() < QColor("#e8913a").value()
+    assert sprites.Palette("#222222").whisker.value() > QColor("#222222").value()
+
+
+def test_muzzle_is_drawn(qapp):
+    """Nase und Schnauzenstriche gehören zu jedem Kopf."""
+    img = sprites.head_icon("normal")
+    seen = colors(img)
+    assert sprites.NOSE.name() in seen
+    assert sprites.Palette().whisker.name() in seen
+
+
 def test_head_icon(qapp):
     img = sprites.head_icon("sad")
     assert (img.width(), img.height()) == (32, 32)
@@ -99,7 +112,7 @@ def test_dark_fur_gets_lighter_outline(qapp):
     pal = sprites.Palette("#222222")
     assert pal.outline.value() > pal.fur.value()
     assert pal.dark.value() > pal.fur.value()
-    assert pal.light.value() > pal.fur.value()
+    assert pal.whisker.value() > pal.fur.value()
     assert pal.eye.value() > pal.fur.value()      # schwarze Augen in schwarzem Fell
     assert sprites.Palette().eye == sprites.EYE
 
