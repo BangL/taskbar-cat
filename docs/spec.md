@@ -25,6 +25,7 @@ taskbar_cat/
   kwin/taskbar-cat-sensor.js KWin-Script, Fenster-Sensor (Paketdatei)
   paths.py                   XDG-Verzeichnisse, mitgelieferte Dateien auflösen
   config.py                  einstellbare Werte + SPECS (Grenzen, Beschriftung)
+  status.py                  Statustexte für Tray-Tooltip, Dialog und Konsole
   autostart.py               ~/.config/autostart/taskbar-cat.desktop verwalten
   data/taskbar-cat.desktop   Desktop-Vorlage (Paketdatei, kein fester Pfad)
   ui/settings.py             Einstellungsdialog, aus config.SPECS aufgebaut
@@ -101,6 +102,7 @@ Verhaltenszustände: `idle_sit`, `walk`, `approach`, `jump`, `fall`, `climb`, `h
   - Drag (Maus gedrückt + > 6 px Bewegung): `dragged`, Katze folgt Cursor (auch über Monitore); Loslassen -> `thrown` mit Mausgeschwindigkeit der letzten 100 ms.
   - Rechtsklick-Menü: Füttern, Streicheln, Schlafen schicken, Zum Boden rufen, Status, Pausieren (versteckt + Zeit eingefroren), "Beim Anmelden starten" (Haken, verwaltet die Autostart-Datei), "Einstellungen ...", Beenden.
   - **Einstellungen** (`ui/settings.py`): Dialog aus `config.SPECS` erzeugt, Werte greifen sofort und werden in `config.json` gespeichert; Knopf für Standardwerte. Einstellbar: Sprite-Größe, Plattformlinien, Mauszeiger fangen, Lauf- und Klettergeschwindigkeit, Stunden bis Sättigung/Zuneigung leer, Futter- und Streichelmenge, Wahrscheinlichkeiten für Sprung/Klettern/Hängen.
+- **Statusabfrage:** `taskbar-cat --status` (optional `--json`) fragt die laufende Instanz über die D-Bus-Methode `status()` ab (JSON mit Bedürfnissen, Stimmung, Verhaltenszustand, Pause, Sensorzustand) und fällt ohne laufende Instanz auf `state.json` zurück (Markierung `running: false`). Formatierung in `status.py`, von Tray-Tooltip und Status-Dialog mitbenutzt.
 - **Tray** (`ui/tray.py`): Icon = Katzenkopf in Stimmungsvariante; Tooltip mit Sättigung/Zuneigung/Energie und Stimmung; Linksklick = Füttern; Menü wie oben.
 
 ## Lebenszyklus

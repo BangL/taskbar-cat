@@ -20,6 +20,9 @@ class Mood(enum.IntEnum):
     SICK = 2
 
 
+MOOD_TEXT = {Mood.NORMAL: "zufrieden", Mood.SAD: "traurig", Mood.SICK: "krank"}
+
+
 def _clamp(v: float) -> float:
     return max(0.0, min(100.0, float(v)))
 

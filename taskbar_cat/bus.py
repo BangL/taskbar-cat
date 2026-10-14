@@ -1,7 +1,10 @@
 """D-Bus: Service für den KWin-Sensor, KWin-Script laden/entladen, Bildschirmsperre."""
+import json
 import os
 import sys
 import time
+from typing import Callable
+
 from PyQt6.QtCore import QObject, QTimer, pyqtClassInfo, pyqtSignal, pyqtSlot
 from PyQt6.QtDBus import QDBusConnection, QDBusInterface, QDBusMessage
 
@@ -25,6 +28,12 @@ class _Adaptor(QObject):
     def update(self, text: str) -> None:
         self._owner._pending = text
 
+    @pyqtSlot(result=str)
+    def status(self) -> str:
+        """Statusabfrage von außen (taskbar-cat --status)."""
+        provider = self._owner.status_provider
+        return json.dumps(provider()) if provider is not None else "{}"
+
     @pyqtSlot(str)
     def cursor(self, text: str) -> None:
         try:
@@ -45,6 +54,7 @@ class CatBus(QObject):
         self._received = False
         self._last_load = 0.0
         self.locked = False
+        self.status_provider: Callable[[], dict] | None = None
         self._bus = QDBusConnection.sessionBus()
         self._watchdog = QTimer(self)
         self._watchdog.timeout.connect(guarded(self._check_sensor))
@@ -112,6 +122,26 @@ class CatBus(QObject):
             print("taskbar-cat: Sensor fehlt, lade neu", file=sys.stderr)
             self._received = False
             self.load_sensor()
+
+
+def query_status(timeout_ms: int = 2000) -> dict | None:
+    """Status der laufenden Instanz holen; None, wenn keine erreichbar ist."""
+    from PyQt6.QtCore import QCoreApplication
+
+    app = QCoreApplication.instance() or QCoreApplication([])  # QtDBus braucht eine App
+    bus = QDBusConnection.sessionBus()
+    if SERVICE not in bus.interface().registeredServiceNames().value():
+        return None
+    iface = QDBusInterface(SERVICE, "/", SERVICE, bus)
+    iface.setTimeout(timeout_ms)
+    reply = iface.call("status")
+    if reply.type() != QDBusMessage.MessageType.ReplyMessage or not reply.arguments():
+        return None
+    try:
+        data = json.loads(reply.arguments()[0])
+    except (TypeError, ValueError):
+        return None
+    return data if isinstance(data, dict) and data else None
 
 
 def _dump(argv: list[str]) -> None:

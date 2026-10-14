@@ -17,6 +17,7 @@ Aus dem Clone, ohne Installation:
     python3 -m taskbar_cat --debug     # Plattformen, Wände und Decken als Linien einblenden
     python3 -m taskbar_cat --help      # Optionen anzeigen
     python3 -m taskbar_cat --version   # Version
+    python3 -m taskbar_cat --status     # Status in einer Zeile, dann beenden
     python3 -m taskbar_cat.bus --dump  # nur Fenster-Sensor testen
 
 Installiert (siehe unten) zusätzlich als `taskbar-cat`.
@@ -59,6 +60,28 @@ Als Python-Paket (eigenes venv oder `--user`):
 - Linksklick aufs Tray-Icon: füttern
 - "Einstellungen ...": Größe, Tempo, Verfallszeiten, Futter-/Streichelmenge und Wahrscheinlichkeiten für Sprung, Klettern und Hängen; Werte greifen sofort
 - "Beim Anmelden starten": Haken verwaltet `~/.config/autostart/taskbar-cat.desktop`
+
+## Status abfragen
+
+    taskbar-cat --status
+    Sättigung 72% | Zuneigung 56% | Energie 80% | zufrieden
+
+    taskbar-cat --status --json
+    {"satiety": 72.4, ..., "mood": "zufrieden", "state": "idle_sit", "paused": false, "running": true}
+
+Die Werte kommen live über D-Bus aus der laufenden Katze. Läuft keine, wird der
+gespeicherte Zustand gelesen und die Ausgabe mit `(nicht gestartet)` markiert;
+der Exit-Code ist in beiden Fällen 0.
+
+Einbau in fastfetch (`~/.config/fastfetch/config.jsonc`):
+
+```jsonc
+{
+  "type": "command",
+  "key": "Katze",
+  "text": "taskbar-cat --status"
+}
+```
 
 ## Dateien
 

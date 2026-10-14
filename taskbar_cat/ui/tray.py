@@ -3,11 +3,9 @@ from PyQt6.QtCore import QObject, Qt, pyqtSignal
 from PyQt6.QtGui import QIcon, QPixmap
 from PyQt6.QtWidgets import QMenu, QMessageBox, QSystemTrayIcon
 
-from .. import autostart, sprites
+from .. import autostart, sprites, status
 from ..cat import MOOD_NAME, Cat
 from ..guard import guarded
-
-MOOD_TEXT = {"normal": "zufrieden", "sad": "traurig", "sick": "krank"}
 
 
 class CatTray(QObject):
@@ -66,14 +64,7 @@ class CatTray(QObject):
             self.feedRequested.emit()
 
     def status_text(self) -> str:
-        n = self._cat.needs
-        lines = [f"Sättigung {n.satiety:.0f} %", f"Zuneigung {n.affection:.0f} %",
-                 f"Energie {n.energy:.0f} %", f"Stimmung: {MOOD_TEXT[MOOD_NAME[n.mood]]}"]
-        if self._cat.paused:
-            lines.append("Pausiert")
-        if not self._sensor_ok:
-            lines.append("Warnung: Fenster-Sensor fehlt")
-        return "\n".join(lines)
+        return "\n".join(status.lines(status.snapshot(self._cat, self._sensor_ok)))
 
     def refresh(self, sensor_ok: bool) -> None:
         self._sensor_ok = sensor_ok

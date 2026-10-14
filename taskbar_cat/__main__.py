@@ -9,9 +9,9 @@ from PyQt6.QtCore import QTimer
 from PyQt6.QtQml import QQmlEngine
 from PyQt6.QtWidgets import QApplication
 
-from . import __version__, paths, sprites, storage
+from . import __version__, paths, sprites, status, storage
 from .guard import guarded
-from .bus import CatBus
+from .bus import CatBus, query_status as bus_query
 from .cat import Cat
 from .play import WiggleDetector
 from .ui.overlay import OverlayManager
@@ -43,13 +43,27 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
                "Fenster-Sensor einzeln testen: python3 -m taskbar_cat.bus --dump")
     p.add_argument("--debug", action="store_true",
                    help="Plattformen (gelb/magenta), Wände (cyan) und Decken (rot) als Linien einblenden")
+    p.add_argument("--status", action="store_true",
+                   help="Status der laufenden Katze ausgeben und beenden (für fastfetch o.ä.)")
+    p.add_argument("--json", action="store_true", help="mit --status: Ausgabe als JSON")
     p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     return p.parse_args(argv[1:])
+
+
+def print_status(as_json: bool) -> int:
+    """Live über D-Bus, sonst aus dem gespeicherten Zustand."""
+    data = bus_query()
+    if data is None:
+        data = status.from_needs(storage.load(paths.state_file()))
+    print(status.as_json(data) if as_json else status.one_line(data))
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv if argv is None else argv
     args = parse_args(argv)
+    if args.status:
+        return print_status(args.json)
     debug = args.debug
     app = QApplication(argv[:1])
     app.setApplicationName("taskbar-cat")
@@ -64,6 +78,7 @@ def main(argv: list[str] | None = None) -> int:
     cfg_file = paths.config_file()
     cfg = storage.load_config(cfg_file)
     cat = Cat(storage.load(state_file), random.Random(), cfg)
+    bus.status_provider = lambda: status.snapshot(cat, bus.sensor_ok)
     cat.home_output = app.primaryScreen().name()
     state = {"world": fallback_world(app), "last": time.monotonic()}
     wiggle = WiggleDetector()
