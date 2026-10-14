@@ -38,6 +38,10 @@ def state_file() -> Path:
     return data_dir() / "state.json"
 
 
+def furniture_file() -> Path:
+    return data_dir() / "furniture.json"
+
+
 def resource_file(*parts: str) -> Path:
     """Mitgelieferte Datei als echter Pfad.
 

@@ -273,3 +273,22 @@ def test_atlas_cached_per_tabby(qapp, tmp_path):
     full = sprites.ensure_atlas(tmp_path, sprites.FUR_DEFAULT, 200)
     assert normal != full and full.exists()
     assert sprites.ensure_atlas(tmp_path, sprites.FUR_DEFAULT, 200) == full
+
+
+def test_new_pose_gets_new_atlas(qapp, tmp_path, monkeypatch):
+    """Neue Pose ohne hochgesetzte Version: trotzdem frisch rendern."""
+    old = sprites.ensure_atlas(tmp_path)
+    monkeypatch.setitem(sprites.ANIMS, "test_pose", 1)
+    monkeypatch.setattr(sprites, "render_atlas", lambda *a: sprites.QImage(1, 1, sprites.QImage.Format.Format_ARGB32))
+    fresh = sprites.ensure_atlas(tmp_path)
+    assert fresh != old and fresh.exists() and not old.exists()
+
+
+def test_new_furniture_gets_new_sheet(qapp, tmp_path, monkeypatch):
+    """Neues Möbel-Bild ohne hochgesetzte Version: trotzdem frisch rendern, altes weg."""
+    old = sprites.ensure_furniture(tmp_path)
+    assert sprites.ensure_furniture(tmp_path) == old
+    monkeypatch.setattr(sprites, "FURNITURE_FRAMES", sprites.FURNITURE_FRAMES + ("test",))
+    monkeypatch.setattr(sprites, "render_furniture", lambda: sprites.QImage(1, 1, sprites.QImage.Format.Format_ARGB32))
+    fresh = sprites.ensure_furniture(tmp_path)
+    assert fresh != old and fresh.exists() and not old.exists()

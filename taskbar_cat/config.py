@@ -43,6 +43,10 @@ SPECS: dict[str, Spec] = {
     "p_climb": Spec("Klettern", "float", 0, 1, 0.05),
     "p_hang": Spec("An Unterkante hängen", "float", 0, 1, 0.05),
     "p_groom": Spec("Putzen", "float", 0, 1, 0.05, "", "Anteil der Ruhepausen, in denen sie sich putzt"),
+    "p_yarn": Spec("Mit Wolle spielen", "float", 0, 1, 0.05, "",
+                   "Wahrscheinlichkeit pro Entscheidung, wenn ein Wollknäuel aufgestellt ist"),
+    "p_tree": Spec("Kratzbaum", "float", 0, 1, 0.05, "",
+                   "Wahrscheinlichkeit pro Entscheidung, zum Kratzbaum zu gehen (kratzen oder hinauf)"),
 }
 
 
@@ -66,6 +70,8 @@ class Config:
     p_climb: float = 0.15
     p_hang: float = 0.10
     p_groom: float = 0.35
+    p_yarn: float = 0.2
+    p_tree: float = 0.15
     # Monitore, auf denen die Katze nicht laufen soll (KWin-Namen wie "DP-1").
     # Nicht in SPECS: die Auswahl entsteht erst zur Laufzeit aus den vorhandenen Monitoren.
     blocked_outputs: list[str] = field(default_factory=list)

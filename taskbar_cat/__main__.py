@@ -7,13 +7,15 @@ import time
 
 from PyQt6.QtCore import QTimer
 from PyQt6.QtQml import QQmlEngine
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QMenu
 
 from . import __version__, paths, sprites, status, storage
 from .guard import guarded
 from .bus import CatBus, query_status as bus_query
 from .cat import Cat
+from .furniture import half_width as furniture_half
 from .play import WiggleDetector
+from .ui.inventory import InventoryDialog
 from .ui.overlay import OverlayManager
 from .ui.settings import SettingsDialog
 from .ui.tray import CatTray
@@ -77,7 +79,9 @@ def main(argv: list[str] | None = None) -> int:
     state_file = paths.state_file()
     cfg_file = paths.config_file()
     cfg = storage.load_config(cfg_file)
+    furniture_file = paths.furniture_file()
     cat = Cat(storage.load(state_file), random.Random(), cfg)
+    cat.furniture = furniture = storage.load_furniture(furniture_file)
     bus.cfg = cfg
     bus.status_provider = lambda: status.snapshot(cat, bus.sensor_ok)
     cat.home_output = app.primaryScreen().name()
@@ -88,7 +92,8 @@ def main(argv: list[str] | None = None) -> int:
 
     engine = QQmlEngine()
     overlays = OverlayManager(engine, sprites.ensure_atlas(paths.cache_dir(), cfg.fur_color, cfg.tabby),
-                              debug or cfg.debug_lines, sprites.ensure_ufo(paths.cache_dir()))
+                              debug or cfg.debug_lines, sprites.ensure_ufo(paths.cache_dir()),
+                              sprites.ensure_furniture(paths.cache_dir()))
     tray = CatTray(cat, cfg.fur_color)
 
     overlays.petted.connect(guarded(cat.pet))
@@ -101,7 +106,59 @@ def main(argv: list[str] | None = None) -> int:
 
     overlays.dragMoved.connect(guarded(drag_moved))
     overlays.released.connect(guarded(cat.release))
-    tray.feedRequested.connect(guarded(cat.feed))
+
+    def half_width(kind: str) -> float:
+        return furniture_half(kind, cat.sprite)
+
+    def furniture_changed() -> None:
+        storage.try_save(furniture_file, furniture)
+        if state.get("inventory") is not None:
+            state["inventory"].refresh()
+
+    def feed() -> None:
+        """Steht ein erreichbarer Napf, kommt das Futter dort hinein."""
+        if furniture.fill(state["world"]):
+            furniture_changed()
+        else:
+            cat.feed()
+
+    def place(kind: str) -> None:
+        # neben die Katze, auf der Seite, in die sie schaut; das Knäuel fällt von oben
+        furniture.place(kind, state["world"], cat.x + cat.facing * cat.sprite,
+                        cat.y - (cat.sprite if kind == "yarn" else 1), half_width(kind))
+        furniture_changed()
+
+    def store(kind: str) -> None:
+        furniture.store(kind)
+        furniture_changed()
+
+    def move_furniture(kind: str, x: float, y: float) -> None:
+        # Gespeichert wird mit dem nächsten save(), nicht bei jedem Mausschritt
+        furniture.put(kind, state["world"], x, y, half_width(kind))
+
+    def show_inventory() -> None:
+        dlg = state.get("inventory")
+        if dlg is None:
+            dlg = state["inventory"] = InventoryDialog(furniture)
+            dlg.placeRequested.connect(guarded(place))
+            dlg.storeRequested.connect(guarded(store))
+        dlg.refresh()
+        dlg.show()
+        dlg.raise_()
+        dlg.activateWindow()
+
+    furniture_menu = QMenu()
+    def show_furniture_menu(kind: str, pos) -> None:
+        furniture_menu.clear()
+        furniture_menu.addAction("Einlagern", guarded(lambda: store(kind)))
+        furniture_menu.addAction("Inventar ...", guarded(show_inventory))
+        furniture_menu.popup(pos)
+
+    overlays.furnitureMoved.connect(guarded(move_furniture))
+    overlays.furnitureReleased.connect(guarded(furniture.release))
+    overlays.furnitureMenu.connect(guarded(show_furniture_menu))
+    tray.inventoryRequested.connect(guarded(show_inventory))
+    tray.feedRequested.connect(guarded(feed))
     tray.petRequested.connect(guarded(cat.pet))
     tray.sleepRequested.connect(guarded(cat.go_sleep))
     tray.floorRequested.connect(guarded(cat.call_to_floor))
@@ -142,24 +199,31 @@ def main(argv: list[str] | None = None) -> int:
         size = cat.sprite
         sprite = (cat.x - size / 2, cat.y - size, cat.x + size / 2, cat.y)
         wiggling = wiggle.is_wiggling(cat.x, cat.y - size / 2, now, avoid=sprite)
-        cat.tick(dt, state["world"], bus.locked, cursor=wiggle.last, wiggling=wiggling)
+        world = furniture.world_with(state["world"], cat.sprite)   # samt Kratzbaum-Liegefläche
+        cat.tick(dt, world, bus.locked, cursor=wiggle.last, wiggling=wiggling)
         fur = cat.take_new_fur()
         if fur is not None:  # vom UFO umgefärbt: wie eine Änderung im Dialog behandeln
             cfg.set("fur_color", fur)
             config_changed("fur_color")
             if state.get("dialog") is not None:
                 state["dialog"].show_value("fur_color")
-        overlays.render(cat, state["world"], now)
+        overlays.render(cat, world, now, furniture)
 
     def save():
         storage.try_save(state_file, cat.needs)
+        storage.try_save(furniture_file, furniture)
 
     def quit_():
         save()
         bus.unload_sensor()
 
     timers = []
-    for ms, fn in ((TICK_MS, tick), (SAVE_MS, save), (TRAY_MS, lambda: tray.refresh(bus.sensor_ok))):
+    def refresh():
+        tray.refresh(bus.sensor_ok)
+        if state.get("inventory") is not None:   # Futterstand ändert sich, wenn sie frisst
+            state["inventory"].refresh()
+
+    for ms, fn in ((TICK_MS, tick), (SAVE_MS, save), (TRAY_MS, refresh)):
         t = QTimer()
         t.timeout.connect(guarded(fn))
         t.start(ms)

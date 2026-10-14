@@ -3,16 +3,20 @@
 Alle Posen schauen nach rechts; Pfoten stehen auf Zeile 30, Zeile 31 bleibt
 für die Kontur frei. Gespiegelt wird beim Zeichnen im Overlay.
 """
+import zlib
 from pathlib import Path
 
 from PyQt6.QtCore import QPointF, QRectF, Qt
 from PyQt6.QtGui import QColor, QImage, QLinearGradient, QPainter, QPen, QPolygonF
 
-ATLAS_VERSION = 10
+from .furniture import FRAME_H
+
+ATLAS_VERSION = 11
 UFO_VERSION = 1
+FURNITURE_VERSION = 5
 FRAME = 32
 ANIMS = {"sit": 2, "groom": 2, "vomit": 2, "walk": 4, "crawl": 4, "jump": 1, "fall": 1, "sleep": 2, "eat": 2, "purr": 2, "dragged": 2, "lie": 2, "climb": 4, "hang": 2,
-         "crouch": 2, "swipe": 2, "cheer": 2}
+         "crouch": 2, "swipe": 2, "cheer": 2, "bat": 2, "scratch": 2}
 MOODS = ("normal", "sad", "sick")
 
 FUR_DEFAULT = "#E8913A"
@@ -24,6 +28,16 @@ BOWL = QColor("#3A7BD5")
 HEART = QColor("#E8364F")
 PUKE = QColor("#9FB04A")
 ZZZ = QColor("#DDE6FF")
+FOOD = QColor("#8B5A2B")
+BED = QColor("#B04A5A")
+BED_DARK = QColor("#7A2E3C")
+CUSHION = QColor("#E8D9B8")
+YARN = QColor("#D8486A")
+YARN_DARK = QColor("#9A2846")
+SISAL = QColor("#D9C08A")
+SISAL_DARK = QColor("#A88B52")
+CARPET = QColor("#8C7B6B")
+CARPET_DARK = QColor("#6A5B4E")
 
 
 def _hsv(c: QColor, dh: float = 0, fs: float = 1.0, fv: float = 1.0, h: float | None = None,
@@ -267,9 +281,22 @@ def _sleep(c: _Pen, f: int):
         c.z(25, 5, 5)
 
 
+def _bowl(c: _Pen, x: int, food: int = 2):
+    """Napf mit der linken Kante bei x; auch das Möbel benutzt ihn, damit sie deckungsgleich sind.
+    Unterkante auf Zeile 30 wie die Pfoten, die Kontur steht dann auf dem Boden.
+    food: 0 leer, 1 ein Häufchen, 2 eben voll, 3 gehäuft."""
+    c.rect(x, 27, 8, 4, BOWL)
+    if food == 1:
+        c.rect(x + 3, 26, 2, 1, FOOD)
+    elif food >= 2:
+        c.rect(x + 1, 26, 6, 1, FOOD)
+    if food >= 3:
+        c.rect(x + 2, 25, 4, 1, FOOD)
+        c.rect(x + 3, 24, 2, 1, FOOD)
+
+
 def _eat(c: _Pen, f: int):
-    c.rect(23, 26, 8, 4, BOWL)
-    c.rect(24, 25, 6, 1, QColor("#8B5A2B"))
+    _bowl(c, 23)
     c.tail([(6, 29), (2, 27), (2, 22)])
     c.ell(11, 25, 7, 5)
     c.rect(15, 24, 2, 7)
@@ -354,6 +381,34 @@ def _swipe(c: _Pen, f: int):
     c.head(15, 10, "wide")
 
 
+def _bat(c: _Pen, f: int):
+    """Wollknäuel anstupsen: geduckt, Frame 1 schnellt die Pfote flach nach vorn."""
+    c.tail([(5, 24), (2, 19), (3 + 2 * f, 15)])
+    c.ell(8, 25, 5, 4)
+    c.ell(15, 27.5, 10, 3.5)
+    c.rect(6, 28, 3, 3)
+    if f:
+        c.rect(21, 29, 9, 2)
+    else:
+        c.rect(21, 28, 4, 3)
+        c.rect(24, 24, 2, 4)
+    c.stripes([(10, 23), (13, 24)])
+    c.head(22, 23, "wide")
+
+
+def _scratch(c: _Pen, f: int):
+    """Am Kratzbaum: aufgerichtet, Vorderpfoten am Pfosten, die ziehen abwechselnd runter."""
+    d = 2 * f
+    c.tail([(10, 29), (5, 30), (3, 26)])
+    c.rect(11, 25, 2, 6)
+    c.rect(15, 25, 2, 6)
+    c.ell(14, 19, 5, 8)
+    c.rect(17, 11 + d, 7, 2)
+    c.rect(18, 15 - d, 6, 2)
+    c.stripes([(11, 17), (11, 21)])
+    c.head(15, 9, "closed")
+
+
 def _cheer(c: _Pen, f: int):
     _sit(c, f, "closed")
     c.heart(25, 3 - f)
@@ -363,7 +418,7 @@ def _cheer(c: _Pen, f: int):
 POSES = {"sit": _sit, "groom": _groom, "vomit": _vomit, "walk": _walk, "crawl": _crawl, "jump": _jump, "fall": _fall, "sleep": _sleep,
          "eat": _eat, "purr": _purr, "dragged": _dragged, "lie": _lie,
          "climb": _climb, "hang": _hang,
-         "crouch": _crouch, "swipe": _swipe, "cheer": _cheer}
+         "crouch": _crouch, "swipe": _swipe, "cheer": _cheer, "bat": _bat, "scratch": _scratch}
 
 
 def _fill_holes(img: QImage, x0: int, y0: int) -> None:
@@ -394,12 +449,12 @@ def _fill_holes(img: QImage, x0: int, y0: int) -> None:
                 img.setPixelColor(x0 + x, y0 + y, max(around, key=lambda c: around.count(c)))
 
 
-def _outline(img: QImage, x0: int, y0: int, color: QColor) -> None:
-    """Konturpixel um alle deckenden Pixel des Frames setzen."""
-    solid = {(x, y) for y in range(FRAME) for x in range(FRAME)
+def _outline(img: QImage, x0: int, y0: int, color: QColor, h: int = FRAME) -> None:
+    """Konturpixel um alle deckenden Pixel des Frames setzen (h = Frame-Höhe)."""
+    solid = {(x, y) for y in range(h) for x in range(FRAME)
              if img.pixelColor(x0 + x, y0 + y).alpha() > 0}
     for x, y in {(x + dx, y + dy) for x, y in solid for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))}:
-        if 0 <= x < FRAME and 0 <= y < FRAME and (x, y) not in solid:
+        if 0 <= x < FRAME and 0 <= y < h and (x, y) not in solid:
             img.setPixelColor(x0 + x, y0 + y, color)
 
 
@@ -428,14 +483,115 @@ def ensure_atlas(cache_dir: Path, fur: QColor | str = FUR_DEFAULT,
     tint = QColor(fur)
     if not tint.isValid():
         tint = QColor(FUR_DEFAULT)
-    path = cache_dir / f"atlas-v{ATLAS_VERSION}-{tint.name()[1:]}-{round(tabby)}.png"
+    # Posen-Liste im Namen: eine neue Pose ohne hochgesetzte Version lädt sonst ein
+    # altes Spritesheet, in dem sie fehlt (die Katze wird dann unsichtbar)
+    prefix = f"atlas-v{ATLAS_VERSION}-{zlib.crc32(repr(ANIMS).encode()):08x}-"
+    path = cache_dir / f"{prefix}{tint.name()[1:]}-{round(tabby)}.png"
     for old in cache_dir.glob("atlas-v*.png"):
-        if not old.name.startswith(f"atlas-v{ATLAS_VERSION}-"):
+        if not old.name.startswith(prefix):
             old.unlink(missing_ok=True)       # Spritesheets älterer Versionen
     if not path.exists():
         cache_dir.mkdir(parents=True, exist_ok=True)
         render_atlas(tint, tabby).save(str(path))
     return path
+
+
+# Bett in zwei Ebenen: die Katze liegt zwischen Rückwand und vorderem Rand
+FURNITURE_FRAMES = ("bed_back", "bed_front", "bowl_0", "bowl_1", "bowl_2", "bowl_3", "yarn", "yarn_roll",
+                    "tree")
+FURNITURE_ROWS = max(FRAME_H.values()) // FRAME   # Atlas-Höhe in Frames; kleine stehen unten
+BOWL_LEVELS = 3   # Frames bowl_0 .. bowl_3, je Portion im Napf eins
+# Frames fürs Inventarbild, übereinander gezeichnet
+FURNITURE_ICON = {"bed": ("bed_back", "bed_front"), "bowl": ("bowl_3",), "yarn": ("yarn",), "tree": ("tree",)}
+
+
+def furniture_height(name: str) -> int:
+    return FRAME_H.get(name, FRAME)
+
+
+def furniture_origin(name: str) -> tuple[int, int]:
+    """Linke obere Ecke im Atlas; alle Frames enden an der Atlas-Unterkante."""
+    return FURNITURE_FRAMES.index(name) * FRAME, FURNITURE_ROWS * FRAME - furniture_height(name)
+
+
+def _bed_back(c: _Pen):
+    c.ell(16, 26, 15, 6, BED)
+    c.ell(16, 27, 12, 4, CUSHION)
+
+
+def _bed_front(c: _Pen):
+    c.rect(2, 28, 28, 3, BED)
+    c.rect(4, 29, 24, 1, BED_DARK)
+
+
+def _yarn(c: _Pen, roll: int):
+    """Knäuel; roll verschiebt die Fadenlinien, das sieht nach Rollen aus."""
+    c.ell(16, 27, 4, 4, YARN)
+    for dx in ((-2, 1), (-1, 2))[roll]:
+        c.rect(16 + dx, 24, 1, 6, YARN_DARK)
+    c.rect(13, 26 + roll, 6, 1, YARN_DARK)
+
+
+def _tree(c: _Pen):
+    """Kratzbaum 32x64: Teppichsockel, Sisalpfosten, Liegefläche, baumelnder Ball.
+    Die Liegefläche muss zu furniture.TREE_DECK passen."""
+    c.rect(4, 57, 24, 6, CARPET)
+    c.rect(4, 57, 24, 1, CARPET_DARK)
+    c.rect(13, 13, 6, 44, SISAL)
+    for y in range(15, 56, 3):
+        c.rect(13, y, 6, 1, SISAL_DARK)
+    c.rect(3, 8, 26, 5, CARPET)
+    c.rect(3, 12, 26, 1, CARPET_DARK)
+    c.rect(25, 13, 1, 7, SISAL_DARK)
+    c.ell(25.5, 22, 2, 2, YARN)
+
+
+def render_furniture() -> QImage:
+    img = QImage(FRAME * len(FURNITURE_FRAMES), FRAME * FURNITURE_ROWS, QImage.Format.Format_ARGB32)
+    img.fill(Qt.GlobalColor.transparent)
+    draw = {"bed_back": _bed_back, "bed_front": _bed_front,
+            **{f"bowl_{n}": lambda c, n=n: _bowl(c, 12, n) for n in range(BOWL_LEVELS + 1)},
+            "yarn": lambda c: _yarn(c, 0), "yarn_roll": lambda c: _yarn(c, 1), "tree": _tree}
+    for name in FURNITURE_FRAMES:
+        x0, y0 = furniture_origin(name)
+        h = furniture_height(name)
+        p = QPainter(img)
+        p.translate(x0, y0)
+        p.setClipRect(0, 0, FRAME, h)
+        pen = _Pen(p, "normal")
+        draw[name](pen)
+        p.end()
+        _outline(img, x0, y0, QColor("#2A1A14"), h)
+    return img
+
+
+def ensure_furniture(cache_dir: Path) -> Path:
+    """Möbel-Atlas zwischenspeichern. Wie bei ensure_atlas steht die Frame-Liste im Namen,
+    damit ein neues Möbel auch ohne hochgesetzte Version frisch gerendert wird."""
+    sig = zlib.crc32(repr((FURNITURE_FRAMES, FRAME_H)).encode())
+    path = cache_dir / f"furniture-v{FURNITURE_VERSION}-{sig:08x}.png"
+    for old in cache_dir.glob("furniture-v*.png"):
+        if old != path:
+            old.unlink(missing_ok=True)       # ältere Stände
+    if not path.exists():
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        render_furniture().save(str(path))
+    return path
+
+
+def furniture_icon(kind: str) -> QImage:
+    """Bild fürs Inventar (FURNITURE_ICON), so hoch wie der Frame."""
+    h = max(furniture_height(n) for n in FURNITURE_ICON[kind])
+    img = QImage(FRAME, h, QImage.Format.Format_ARGB32)
+    img.fill(Qt.GlobalColor.transparent)
+    sheet = render_furniture()
+    p = QPainter(img)
+    for name in FURNITURE_ICON[kind]:
+        x0, y0 = furniture_origin(name)
+        fh = furniture_height(name)
+        p.drawImage(0, h - fh, sheet, x0, y0, FRAME, fh)
+    p.end()
+    return img
 
 
 def render_ufo() -> QImage:

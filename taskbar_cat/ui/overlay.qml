@@ -26,6 +26,10 @@ Window {
     property bool catVisible: false
     property int spriteSize: 96
     property var platforms: []
+    // Möbel: je {x, y (Mitte unten, lokal), sx, sy, h (Frame im Atlas)}; vorn = vor der Katze
+    property url furnitureAtlas
+    property var furnitureBack: []
+    property var furnitureFront: []
     // UFO-Easter-Egg (Mitte der Untertasse, Strahl von beamTop bis beamBottom)
     property url ufoSource
     property url beamSource
@@ -65,6 +69,19 @@ Window {
         height: Math.max(0, win.beamBottom - win.beamTop)
     }
 
+    Repeater {
+        model: win.furnitureBack
+        Image {
+            source: win.furnitureAtlas
+            sourceClipRect: Qt.rect(modelData.sx, modelData.sy, 32, modelData.h)
+            x: Math.round(modelData.x - width / 2)
+            y: Math.round(modelData.y - height)
+            width: win.spriteSize
+            height: win.spriteSize * modelData.h / 32
+            smooth: false
+        }
+    }
+
     Image {
         id: sprite
         source: win.atlas
@@ -76,6 +93,19 @@ Window {
         smooth: false
         mirror: win.flip
         visible: win.catVisible
+    }
+
+    Repeater {
+        model: win.furnitureFront
+        Image {
+            source: win.furnitureAtlas
+            sourceClipRect: Qt.rect(modelData.sx, modelData.sy, 32, modelData.h)
+            x: Math.round(modelData.x - width / 2)
+            y: Math.round(modelData.y - height)
+            width: win.spriteSize
+            height: win.spriteSize * modelData.h / 32
+            smooth: false
+        }
     }
 
     Image {

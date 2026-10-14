@@ -20,6 +20,7 @@ class CatTray(QObject):
     floorRequested = pyqtSignal()
     pauseToggled = pyqtSignal(bool)
     settingsRequested = pyqtSignal()
+    inventoryRequested = pyqtSignal()
     quitRequested = pyqtSignal()
 
     def __init__(self, cat: Cat, fur: str = sprites.FUR_DEFAULT):
@@ -34,6 +35,7 @@ class CatTray(QObject):
         self._menu.addAction("Schlafen schicken", self.sleepRequested.emit)
         self._menu.addAction("Zum Boden rufen", self.floorRequested.emit)
         self._menu.addAction("Status ...", guarded(self._show_status))
+        self._menu.addAction("Inventar ...", self.inventoryRequested.emit)
         self._menu.addSeparator()
         self._pause = self._menu.addAction("Pausieren")
         self._pause.setCheckable(True)

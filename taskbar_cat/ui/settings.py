@@ -11,7 +11,7 @@ from ..guard import guarded
 GROUPS = (
     ("Darstellung", ("sprite_scale", "fur_color", "tabby", "debug_lines")),
     ("Verhalten", ("play_enabled", "shake_enabled", "walk_speed", "climb_speed", "jump_max_side",
-                   "shake_limit", "p_jump", "p_climb", "p_hang", "p_groom")),
+                   "shake_limit", "p_jump", "p_climb", "p_hang", "p_groom", "p_yarn", "p_tree")),
     ("Bedürfnisse", ("satiety_hours", "affection_hours", "feed_amount", "pet_amount")),
 )
 

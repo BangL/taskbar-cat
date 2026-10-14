@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 
 from .config import Config
+from .furniture import Furniture
 from .needs import Needs
 
 
@@ -40,14 +41,18 @@ def load_config(path: Path) -> Config:
     return Config.from_dict(read_dict(path))
 
 
-def save(path: Path, obj: Needs | Config) -> None:
+def load_furniture(path: Path) -> Furniture:
+    return Furniture.from_dict(read_dict(path))
+
+
+def save(path: Path, obj: Needs | Config | Furniture) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(obj.to_dict(), indent=2))
     os.replace(tmp, path)
 
 
-def try_save(path: Path, obj: Needs | Config) -> bool:
+def try_save(path: Path, obj: Needs | Config | Furniture) -> bool:
     try:
         save(path, obj)
     except OSError as e:

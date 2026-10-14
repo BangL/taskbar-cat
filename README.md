@@ -68,7 +68,9 @@ Als Python-Paket (eigenes venv oder `--user`):
 - Ziehen und loslassen: werfen; wer sie dabei wild hin und her schüttelt, darf hinterher die Pfütze bewundern
 - Mit dem Mauszeiger neben der Katze fuchteln: sie spielt und versucht zu fangen
 - Rechtsklick auf Katze oder Tray-Icon: Menü (Füttern, Schlafen, Zum Boden, Pause, Autostart, Einstellungen, ...)
-- Linksklick aufs Tray-Icon: füttern
+- Linksklick aufs Tray-Icon: füttern; steht ein Napf, kommt das Futter dort hinein (bis zu 3 Portionen)
+- "Inventar ...": Katzenbett, Napf, Wollknäuel und Kratzbaum aufstellen oder einlagern; aufgestellte Möbel stehen auf dem Boden und lassen sich mit der Maus verschieben, Rechtsklick darauf lagert sie ein
+- Mit Napf geht die Katze selbst fressen, sobald eine Portion reinpasst; mit Bett schläft sie darin; ein Wollknäuel stupst sie ab und zu über den Boden und jagt hinterher ("Mit Wolle spielen" in den Einstellungen), das Knäuel lässt sich auch werfen und bleibt auf Fenstern liegen; am Kratzbaum kratzt sie oder springt auf die Liegefläche, die wie eine Fensterkante begehbar ist ("Kratzbaum" in den Einstellungen). Fehlt ein Möbel (eingelagert, leer, auf gesperrtem Monitor), macht sie es wie vorher
 - "Einstellungen ..." -> "Fellfarbe": Farbwähler; Streifen, Kontur, Brust, Augen und die traurige/kranke Variante werden daraus berechnet
 - "Einstellungen ..." -> "Tigerung": 0 % einfarbig, 100 % wie gewohnt, bis 200 % mit zusätzlichen Streifen
 - "Einstellungen ...": Größe, Tempo, Sprungweite, Verfallszeiten, Futter-/Streichelmenge und Wahrscheinlichkeiten für Sprung, Klettern, Hängen und Putzen; Werte greifen sofort
@@ -101,6 +103,7 @@ Einbau in fastfetch (`~/.config/fastfetch/config.jsonc`):
 ## Dateien
 
 - Zustand: `$XDG_DATA_HOME/taskbar-cat/state.json` (Standard `~/.local/share/...`)
+- Möbel (Standort, Futter im Napf): `$XDG_DATA_HOME/taskbar-cat/furniture.json`
 - Einstellungen: `$XDG_CONFIG_HOME/taskbar-cat/config.json` (Standard `~/.config/...`)
 - Autostart: `$XDG_CONFIG_HOME/autostart/taskbar-cat.desktop`
 - Sprite-Cache: `$XDG_CACHE_HOME/taskbar-cat/` (Standard `~/.cache/...`), je Fellfarbe und Tigerung ein Spritesheet

@@ -5,11 +5,11 @@ import random
 
 from . import ufo
 from .config import Config
+from .furniture import TREE_ID, Furniture
 from .needs import Mood, Needs
-from .world import Ceiling, Platform, Rect, Wall, World
+from .world import GRAVITY, Ceiling, Platform, Rect, Wall, World
 
 _DEFAULTS = Config()
-GRAVITY = 2500
 SPRITE = _DEFAULTS.sprite_px
 MAX_PHYS_DT = 0.1
 MAX_SUBSTEP_PX = 20
@@ -36,11 +36,18 @@ VOMIT_SATIETY = 25   # so viel kommt wieder hoch
 JUMP_MAX_SIDE = _DEFAULTS.jump_max_side
 FLEE_FACTOR = 4      # so viel schneller als sonst läuft sie vom gesperrten Monitor
 FLEE_TIMEOUT = 30.0  # kommt sie nicht weg (Monitore nicht benachbart), doch umsetzen
+# Frame-Pixel von der Katzenmitte bis zur Möbelmitte: Napf in der Fress-Pose,
+# Knäuel an der ausgestreckten Pfote
+REACH = {"bowl": 11, "yarn": 18, "tree": 11}
+BOWL_REACH = REACH["bowl"]
+YARN_KICK = (150, 350)   # px/s, so fest stupst sie das Knäuel an
+YARN_BATS = (3, 6)       # so oft hintereinander, dann reicht es
+YARN_REWARD = 1          # Zuneigung pro Stupser
 
 AIRBORNE = ("jump", "fall", "thrown")
 CLINGING = ("climb", "hang")
-NO_PLAY = ("sleep", "dragged", "climb", "hang", "hidden", "eat", "sick_lie", "vomit")
-ANIM_FOR_STATE = {"chase": "walk", "approach": "walk", "flee": "walk", "idle_sit": "sit", "sick_lie": "lie", "thrown": "fall", "hidden": "sit",
+NO_PLAY = ("sleep", "dragged", "climb", "hang", "hidden", "eat", "sick_lie", "vomit", "bat")
+ANIM_FOR_STATE = {"chase": "walk", "approach": "walk", "flee": "walk", "seek": "walk", "idle_sit": "sit", "sick_lie": "lie", "thrown": "fall", "hidden": "sit",
                   "beamed": "dragged", "abducted": "sit"}
 MOOD_NAME = {Mood.NORMAL: "normal", Mood.SAD: "sad", Mood.SICK: "sick"}
 # Unter einer niedrigen Fensterkante passt sie nicht aufrecht durch
@@ -93,6 +100,12 @@ class Cat:
         self._pounce: str | None = None   # "pounce" | "swipe" während eines Spielsprungs
         self._hit_cursor = False
         self._caught = False
+        self.furniture = Furniture()
+        self._goal: str | None = None   # Möbel, zu dem sie gerade läuft ("seek")
+        self._world: World | None = None  # letzte Welt aus tick, für Befehle von außen
+        self._in_bed = False
+        self._bats_left = 0
+        self._waiting = False   # "seek", aber das Knäuel fliegt gerade: sitzen und zuschauen
 
     # --- Zustand von außen ---
 
@@ -103,6 +116,10 @@ class Cat:
     @property
     def visible(self) -> bool:
         return self.state not in ("hidden", "abducted") and not self.paused
+
+    @property
+    def in_bed(self) -> bool:
+        return self.state == "sleep" and self._in_bed
 
     @property
     def abducted(self) -> bool:
@@ -142,8 +159,10 @@ class Cat:
             self._set("purr", 1.5)
 
     def go_sleep(self) -> None:
+        """Ins Bett, falls eins erreichbar ist, sonst gleich hier."""
         if self.grounded and not self.abducted:
-            self._set("sleep", math.inf)
+            if self._world is None or not self._seek("bed", self._world):
+                self._set("sleep", math.inf)
 
     def call_to_floor(self) -> None:
         if self.abducted:
@@ -165,6 +184,7 @@ class Cat:
         self._drag_idle = 0.0
         self._grab = None
         self._pounce = None
+        self._goal = None
 
     def drag_to(self, x: float, y: float) -> None:
         if self.state != "dragged":  # z.B. während der Entführung
@@ -215,6 +235,8 @@ class Cat:
         anim = ANIM_FOR_STATE.get(self.state, self.state)
         if self.state == "jump" and self._pounce == "swipe":
             anim = "swipe"
+        elif self.state == "seek" and self._waiting:
+            anim = "sit"
         if self._cramped:
             anim = CRAMPED_ANIM.get(anim, anim)
         return anim, MOOD_NAME[self.needs.mood], int(t * ANIM_FPS), self.facing < 0
@@ -222,7 +244,7 @@ class Cat:
     # --- Simulation ---
 
     def _activity(self) -> str:
-        if self.state in AIRBORNE + CLINGING + ("walk", "approach", "dragged", "chase", "crouch", "flee"):
+        if self.state in AIRBORNE + CLINGING + ("walk", "approach", "dragged", "chase", "crouch", "flee", "seek", "bat"):
             return "active"
         return "sleep" if self.state == "sleep" else "rest"
 
@@ -231,6 +253,8 @@ class Cat:
         if self.paused:
             return
         self._cursor = cursor
+        self._world = world
+        self.furniture.tick(world, min(dt, MAX_PHYS_DT), self.sprite)
         if wiggling and cursor is not None and self._can_play():
             self._play_left = PLAY_LINGER
         else:
@@ -297,6 +321,8 @@ class Cat:
     def _set(self, state: str, duration: float) -> None:
         self.state = state
         self._timer = duration
+        self._in_bed = False
+        self._waiting = False
 
     def _start_fall(self, floors_only: bool = False) -> None:
         self.state = "fall"
@@ -324,6 +350,8 @@ class Cat:
             self._shakes = 0.0
             self.needs.satiety = max(0.0, self.needs.satiety - VOMIT_SATIETY)
             self._set("vomit", VOMIT_S)
+        elif self._goal is not None and self.state == "idle_sit":
+            self.state = "seek"   # zum Möbel heruntergesprungen: weiterlaufen
 
     def _ride(self, world: World) -> bool:
         """Plattform nachführen (Fenster bewegt, Panel verschoben). False = Boden weg."""
@@ -397,7 +425,9 @@ class Cat:
             if not self.platform.is_floor:
                 self._start_fall(floors_only=True)
                 return
-            if self.state not in ("eat", "purr", "sick_lie"):
+            if self.state == "sick_lie" and self._hungry() and self._seek("bowl", world):
+                return
+            if self.state not in ("eat", "purr", "sick_lie", "seek"):
                 self._set("sick_lie", math.inf)
         elif self.state == "sick_lie":
             self._choose(world)
@@ -409,6 +439,9 @@ class Cat:
             self._choose(world)
             return
 
+        if self.state == "seek":
+            self._go(dt, world)
+            return
         self._timer -= dt
         if self.state == "walk":
             self._walk(dt, world)
@@ -416,6 +449,8 @@ class Cat:
             self._approach(dt, world)
             return
         if self.state == "sleep":
+            if self._in_bed and self.furniture.usable("bed", world) != (self.x, self.y):
+                self._in_bed = False   # Bett weggezogen oder eingelagert
             if self.needs.energy >= 80:
                 self._choose(world)
             return
@@ -425,6 +460,9 @@ class Cat:
                 self._set("idle_sit", 60)
             elif self.state == "vomit":
                 self._set("groom", self.rng.uniform(4, 7))   # danach macht sie sich sauber
+            elif self.state == "bat":   # hinterher oder erst mal verschnaufen
+                if self._bats_left <= 0 or not self._seek("yarn", world):
+                    self._set("idle_sit", self.rng.uniform(3, 10))
             else:
                 self._choose(world)
 
@@ -643,11 +681,24 @@ class Cat:
         return o is not None and o.name not in world.forbidden_outputs
 
     def _choose(self, world: World) -> None:
+        self._goal = None
         if self.needs.energy < 20:
-            self._set("sleep", math.inf)
+            if not self._seek("bed", world):
+                self._set("sleep", math.inf)
             return
         if self.needs.mood == Mood.SICK:
-            self._set("sick_lie", math.inf)
+            if not (self._hungry() and self._seek("bowl", world)):
+                self._set("sick_lie", math.inf)
+            return
+        if self._hungry() and self._seek("bowl", world):
+            return
+        # Würfel nur mit Knäuel bzw. Kratzbaum, sonst verschiebt sich der Zufall für alles andere
+        if (self.furniture.usable("yarn", world) is not None
+                and self.rng.random() < self.cfg.p_yarn and self._seek("yarn", world)):
+            self._bats_left = self.rng.randint(*YARN_BATS)
+            return
+        if (self.furniture.usable("tree", world) is not None and self.platform.is_floor
+                and self.rng.random() < self.cfg.p_tree and self._seek("tree", world)):
             return
         p = self.platform
         r = self.rng.random()
@@ -678,12 +729,18 @@ class Cat:
         reach = world.reachable(p, self.x, max_up=math.inf, max_side=self.cfg.jump_max_side)
         return [q for q in reach if q.y >= top]
 
-    def _jump_to(self, q: Platform) -> None:
+    def _jump_to(self, q: Platform, aim: float | None = None) -> None:
+        """aim: möglichst dort landen (sonst zufällig in Reichweite)."""
         # Nur in Reichweite landen: breite Plattformen (der Boden des Nachbarmonitors)
         # liefern sonst Ziele quer über den Schirm und damit absurde Geschwindigkeiten
         lo = max(q.x1 + 20, self.x - self.cfg.jump_max_side)
         hi = min(q.x2 - 20, self.x + self.cfg.jump_max_side)
-        tx = self.rng.uniform(lo, hi) if lo < hi else min(max(self.x, q.x1), q.x2)
+        if lo >= hi:
+            tx = min(max(self.x, q.x1), q.x2)
+        elif aim is not None:
+            tx = min(max(aim, lo), hi)
+        else:
+            tx = self.rng.uniform(lo, hi)
         dy = q.y - self.y
         h = max(0.0, -dy) + 60
         vy0 = -math.sqrt(2 * GRAVITY * h)
@@ -694,3 +751,145 @@ class Cat:
         self.vx = (tx - self.x) / t
         self.vy = vy0
         self.facing = 1 if self.vx >= 0 else -1
+
+    # --- Möbel ---
+
+    def _hungry(self) -> bool:
+        """Erst wenn eine ganze Portion reinpasst, sonst wäre sie danach träge."""
+        return self.needs.satiety < max(20.0, 100 - self.cfg.feed_amount)
+
+    def _route(self, world: World, p: Platform | None, from_x: float, x: float,
+               floors_only: bool = False) -> Platform | None:
+        """Plattform bei x, die von p aus zu Fuß erreichbar ist (Nachbarn gleicher Höhe)."""
+        d = 1 if x >= from_x else -1
+        while p is not None and not p.x1 <= x <= p.x2:
+            p = world.neighbor(p, d)
+            if p is not None and ((floors_only and not p.is_floor) or not self._allowed(world, p)):
+                return None
+        return p if p is not None and self._allowed(world, p) else None
+
+    def _floor_route(self, world: World, x: float) -> bool:
+        """Kommt sie zu Fuß über den Boden (auch über Monitorgrenzen) bis x?"""
+        p = self.platform
+        if p is None or not p.is_floor:
+            p = world.platform_below(self.x, self.y, floors_only=True)
+        return self._route(world, p, self.x, x, floors_only=True) is not None
+
+    def _yarn_spot(self, world: World) -> tuple[float, Platform] | None:
+        """Wo sie neben dem Knäuel stehen kann, auf seiner Kante oder deren Nachbarn."""
+        pos = self.furniture.usable("yarn", world)
+        if pos is None:
+            return None
+        reach = REACH["yarn"] * self.sprite / 32
+        side = -1 if self.x < pos[0] else 1
+        for x in (pos[0] + side * reach, pos[0] - side * reach):
+            q = self._route(world, self.furniture.yarn.platform, pos[0], x)
+            if q is not None:
+                return x, q
+        return None
+
+    def _way(self, world: World, x: float, q: Platform) -> str | None:
+        """Wie sie zu x auf q kommt: "walk", "jump", "fall" (zum Boden) oder gar nicht."""
+        p = self.platform
+        if p is None:
+            return None
+        here = self._route(world, p, self.x, x)
+        if here is not None and abs(here.y - q.y) <= 2:
+            return "walk"
+        if q in self._jump_targets(world, p):
+            return "jump"
+        if q.is_floor and not p.is_floor:
+            return "fall"
+        return None
+
+    def _goal_x(self, kind: str, world: World) -> float | None:
+        """Wo sie stehen muss, um das Möbel zu benutzen; None = nicht erreichbar oder sinnlos."""
+        pos = self.furniture.usable(kind, world)
+        if pos is None or (kind == "bowl" and self.furniture.food <= 0):
+            return None
+        if kind == "yarn":   # liegt womöglich auf einem Fenster
+            spot = self._yarn_spot(world)
+            return spot[0] if spot is not None and self._way(world, *spot) else None
+        if kind == "bed":
+            spots = [pos[0]]
+        else:  # daneben, bevorzugt auf der Seite, auf der sie gerade ist
+            reach = REACH[kind] * self.sprite / 32
+            side = -1 if self.x < pos[0] else 1
+            spots = [pos[0] + side * reach, pos[0] - side * reach]
+        return next((x for x in spots if self._floor_route(world, x)), None)
+
+    def _seek(self, kind: str, world: World) -> bool:
+        if self._goal_x(kind, world) is None:
+            return False
+        self._goal = kind
+        self._set("seek", math.inf)
+        return True
+
+    def _go(self, dt: float, world: World) -> None:
+        kind = self._goal
+        tx = self._goal_x(kind, world) if kind else None
+        yarn = self.furniture.yarn
+        if tx is None and kind == "yarn" and yarn.placed and not yarn.resting:
+            self._waiting = True   # fliegt oder hängt an der Maus: zuschauen
+            self.facing = 1 if yarn.x >= self.x else -1
+            return
+        self._waiting = False
+        if tx is None:   # eingelagert, leer, Monitor gesperrt: wie ohne Möbel
+            if kind == "bed":
+                self._goal = None
+                self._set("sleep", math.inf)
+            else:
+                self._choose(world)
+            return
+        if kind == "yarn":
+            _, q = self._yarn_spot(world)
+            way = self._way(world, tx, q)
+            if way == "jump":
+                self._jump_to(q, tx)
+                return
+            if way == "fall":
+                self._start_fall(floors_only=True)
+                return
+        elif not self.platform.is_floor:
+            self._start_fall(floors_only=True)
+            return
+        step = (CHASE_SPEED if kind == "yarn" else self._speed(self.cfg.walk_speed)) * dt
+        if abs(tx - self.x) <= step:
+            self.x = tx
+            self._arrive(kind, world)
+            return
+        self.facing = 1 if tx > self.x else -1
+        self.x += self.facing * step
+        p = self.platform
+        if not p.x1 <= self.x <= p.x2:
+            n = world.neighbor(p, self.facing)
+            if n is not None and self._allowed(world, n):
+                self.platform = n
+                self._ride_rect = None if n.is_floor else world.window_rect(n.owner)
+            else:   # sollte _floor_route verhindern; nicht festlaufen
+                self.x = min(max(self.x, p.x1), p.x2)
+                self._goal = None
+                self._set("idle_sit", self.rng.uniform(3, 10))
+
+    def _arrive(self, kind: str, world: World) -> None:
+        self._goal = None
+        if kind == "bed":
+            self._set("sleep", math.inf)
+            self._in_bed = True
+            return
+        bx = self.furniture.usable(kind, world)[0]
+        self.facing = 1 if bx >= self.x else -1
+        if kind == "tree":
+            deck = next((p for p in world.platforms if p.owner == TREE_ID), None)
+            if deck is not None and self.rng.random() < 0.5:
+                self._jump_to(deck, bx)   # hinauf auf die Liegefläche
+            else:
+                self._set("scratch", self.rng.uniform(2.5, 5))
+        elif kind == "yarn":
+            self._bats_left -= 1
+            self.furniture.kick(self.facing * self.rng.uniform(*YARN_KICK))
+            self.needs.affection = min(100.0, self.needs.affection + YARN_REWARD)
+            self._set("bat", 0.5)
+        elif self.furniture.eat():
+            self._lazy_after_eat = self.needs.feed(self.cfg)
+            self._set("eat", 3)

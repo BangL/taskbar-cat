@@ -3,6 +3,7 @@ import json
 from dataclasses import dataclass
 
 MIN_PIECE = 40
+GRAVITY = 2500   # px/s², für Katze und Wollknäuel
 
 
 @dataclass(frozen=True)
