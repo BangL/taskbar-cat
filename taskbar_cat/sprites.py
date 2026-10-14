@@ -8,10 +8,10 @@ from pathlib import Path
 from PyQt6.QtCore import QPointF, QRectF, Qt
 from PyQt6.QtGui import QColor, QImage, QLinearGradient, QPainter, QPen, QPolygonF
 
-ATLAS_VERSION = 8
+ATLAS_VERSION = 9
 UFO_VERSION = 1
 FRAME = 32
-ANIMS = {"sit": 2, "groom": 2, "vomit": 2, "walk": 4, "jump": 1, "fall": 1, "sleep": 2, "eat": 2, "purr": 2, "dragged": 2, "lie": 2, "climb": 4, "hang": 2,
+ANIMS = {"sit": 2, "groom": 2, "vomit": 2, "walk": 4, "crawl": 4, "jump": 1, "fall": 1, "sleep": 2, "eat": 2, "purr": 2, "dragged": 2, "lie": 2, "climb": 4, "hang": 2,
          "crouch": 2, "swipe": 2, "cheer": 2}
 MOODS = ("normal", "sad", "sick")
 
@@ -213,6 +213,18 @@ def _walk(c: _Pen, f: int):
     c.head(24, 14)
 
 
+def _crawl(c: _Pen, f: int):
+    """Geduckt laufen: unter niedrigen Fensterkanten passt sie sonst nicht durch."""
+    lift = [(0, 1, 0, 1), (1, 0, 0, 0), (0, 1, 1, 0), (0, 0, 0, 1)][f]
+    shift = [0, 1, 0, -1][f]
+    for i, (x, l) in enumerate(zip((7, 10, 19, 22), lift)):
+        c.rect(x + (shift if i % 2 else -shift), 28, 2, 3 - l)
+    c.tail([(6, 26), (2, 24), (2 + shift, 21)])
+    c.ell(14, 26, 10, 4)
+    c.stripes([(9, 23), (12, 22), (15, 22)])
+    c.head(24, 24)
+
+
 def _jump(c: _Pen, f: int):
     c.rect(23, 20, 7, 2)
     c.rect(1, 22, 7, 2)
@@ -337,7 +349,7 @@ def _cheer(c: _Pen, f: int):
     c.heart(2, 5 + f)
 
 
-POSES = {"sit": _sit, "groom": _groom, "vomit": _vomit, "walk": _walk, "jump": _jump, "fall": _fall, "sleep": _sleep,
+POSES = {"sit": _sit, "groom": _groom, "vomit": _vomit, "walk": _walk, "crawl": _crawl, "jump": _jump, "fall": _fall, "sleep": _sleep,
          "eat": _eat, "purr": _purr, "dragged": _dragged, "lie": _lie,
          "climb": _climb, "hang": _hang,
          "crouch": _crouch, "swipe": _swipe, "cheer": _cheer}

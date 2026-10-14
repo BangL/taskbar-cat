@@ -134,6 +134,21 @@ def test_groom_frames(qapp, tmp_path):
     assert frame_image(img, "groom", "normal", 0) != frame_image(img, "sit", "normal", 0)
 
 
+def test_crawl_is_flat_enough(qapp, tmp_path):
+    """Die geduckte Pose muss deutlich niedriger sein als die aufrechte."""
+    img = load(tmp_path)
+
+    def top(anim, i):
+        x, y = sprites.frame_origin(anim, "normal", i)
+        return min(dy for dy in range(FRAME)
+                   if any(img.pixelColor(x + dx, y + dy).alpha() > 0 for dx in range(FRAME)))
+
+    assert sprites.ANIMS["crawl"] == 4
+    for i in range(4):
+        assert top("crawl", i) >= top("walk", i) + 6
+    assert frame_image(img, "crawl", "normal", 0) != frame_image(img, "crawl", "normal", 1)
+
+
 def test_vomit_frames(qapp, tmp_path):
     img = load(tmp_path)
     assert sprites.ANIMS["vomit"] == 2

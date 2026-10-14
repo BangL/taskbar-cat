@@ -43,6 +43,8 @@ NO_PLAY = ("sleep", "dragged", "climb", "hang", "hidden", "eat", "sick_lie", "vo
 ANIM_FOR_STATE = {"chase": "walk", "approach": "walk", "flee": "walk", "idle_sit": "sit", "sick_lie": "lie", "thrown": "fall", "hidden": "sit",
                   "beamed": "dragged", "abducted": "sit"}
 MOOD_NAME = {Mood.NORMAL: "normal", Mood.SAD: "sad", Mood.SICK: "sick"}
+# Unter einer niedrigen Fensterkante passt sie nicht aufrecht durch
+CRAMPED_ANIM = {"walk": "crawl", "sit": "lie", "groom": "lie"}
 
 
 def _free(world: World) -> list:
@@ -75,6 +77,7 @@ class Cat:
         self._shake_dir = 0
         self._shake_px = 0.0
         self._queasy = False
+        self._cramped = False
         self.ufo: ufo.Ufo | None = None
         self._ufo_quiet = 0.0
         # Eigener Zufall fürs UFO, damit der Würfel pro Tick das übrige Verhalten nicht verschiebt
@@ -211,6 +214,8 @@ class Cat:
         anim = ANIM_FOR_STATE.get(self.state, self.state)
         if self.state == "jump" and self._pounce == "swipe":
             anim = "swipe"
+        if self._cramped:
+            anim = CRAMPED_ANIM.get(anim, anim)
         return anim, MOOD_NAME[self.needs.mood], int(t * ANIM_FPS), self.facing < 0
 
     # --- Simulation ---
@@ -262,6 +267,8 @@ class Cat:
                 self.platform = None
             return
         self._flee_s = 0.0
+        self._cramped = (self.grounded and self.platform is not None
+                         and self.platform.y - out.work_area.y < self.sprite)
         if self.state == "hidden":
             self._start_fall()
         if self.state in CLINGING:

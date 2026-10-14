@@ -238,6 +238,33 @@ def test_shaking_slowly_is_forgotten():
     assert c.state != "vomit"
 
 
+def test_crawls_under_a_low_window_edge():
+    """Oberkante 60 px unter dem Rand der Arbeitsfläche: da passt sie nur geduckt durch."""
+    w = world(win("a", 200, 104))          # Arbeitsfläche beginnt bei y=44
+    c = make_cat()
+    c.spawn(w)
+    put_on(c, w, "a", 500)
+    c.state, c.facing, c._timer = "walk", 1, 100
+    c.tick(DT, w, False)
+    assert c.frame_key(0)[0] == "crawl"
+    c._set("idle_sit", 10)
+    c.tick(DT, w, False)
+    assert c.frame_key(0)[0] == "lie"
+
+
+def test_walks_upright_with_room_above():
+    w = world(win("a", 200, 500))
+    c = make_cat()
+    c.spawn(w)
+    put_on(c, w, "a", 500)
+    c.state, c.facing, c._timer = "walk", 1, 100
+    c.tick(DT, w, False)
+    assert c.frame_key(0)[0] == "walk"
+    c._set("idle_sit", 10)
+    c.tick(DT, w, False)
+    assert c.frame_key(0)[0] == "sit"
+
+
 def test_she_grooms_herself_now_and_then():
     w = world()
     c = make_cat()
