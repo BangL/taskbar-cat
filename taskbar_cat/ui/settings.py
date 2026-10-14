@@ -157,7 +157,7 @@ class SettingsDialog(QDialog):
         self._cfg.set(name, value)
         self.changed.emit(name)
 
-    def restore_defaults(self) -> None:
+    def restore_defaults(self, checked: bool = False) -> None:   # clicked liefert checked mit
         defaults = Config()
         for name, w in self._widgets.items():
             value = getattr(defaults, name)

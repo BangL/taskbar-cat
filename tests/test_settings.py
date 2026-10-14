@@ -1,6 +1,6 @@
 import pytest
 from PyQt6.QtGui import QColor
-from PyQt6.QtWidgets import QColorDialog
+from PyQt6.QtWidgets import QColorDialog, QDialogButtonBox
 
 from taskbar_cat.config import SPECS, Config
 from taskbar_cat.ui.settings import GROUPS, SettingsDialog
@@ -117,3 +117,12 @@ def test_color_button_keeps_value_when_cancelled(qapp, pick):
     dlg = SettingsDialog(cfg)
     dlg._widgets["fur_color"].click()
     assert cfg.fur_color == Config().fur_color
+
+
+def test_restore_defaults_button_click(qapp):
+    cfg = Config()
+    dlg = SettingsDialog(cfg)
+    dlg._widgets["satiety_hours"].setValue(40)
+    box = dlg.findChild(QDialogButtonBox)
+    box.button(QDialogButtonBox.StandardButton.RestoreDefaults).click()
+    assert cfg == Config()
