@@ -1,13 +1,14 @@
 import pytest
 
+from taskbar_cat.config import Config
 from taskbar_cat.needs import AFFECTION_DECAY, SATIETY_DECAY, Mood, Needs
 
 
-def run(n, seconds, activity="rest", step=5.0):
+def run(n, seconds, activity="rest", step=5.0, cfg=None):
     t = 0.0
     while t < seconds:
         d = min(step, seconds - t)
-        n.tick(d, activity)
+        n.tick(d, activity, cfg)
         t += d
 
 
@@ -102,3 +103,27 @@ def test_from_dict_clamps_and_ignores_unknown():
     assert n.satiety == 100
     assert n.affection == 0
     assert n.energy == 80
+
+
+def test_config_changes_decay_and_amounts():
+    cfg = Config()
+    cfg.set("satiety_hours", 4)
+    cfg.set("feed_amount", 10)
+    cfg.set("pet_amount", 5)
+    n = Needs(satiety=100, affection=50)
+    run(n, 3600, cfg=cfg)
+    assert n.satiety == pytest.approx(75, abs=0.5)   # 4 h bis leer statt 8 h
+    n.satiety = 50
+    assert n.feed(cfg) is False and n.satiety == pytest.approx(60)
+    n.affection = 50
+    n.pet(cfg)
+    assert n.affection == pytest.approx(55)
+
+
+def test_overfed_depends_on_feed_amount():
+    cfg = Config()
+    cfg.set("feed_amount", 10)
+    n = Needs(satiety=95)
+    assert n.feed(cfg) is True      # 95 + 10 wird gedeckelt
+    n = Needs(satiety=80)
+    assert n.feed(cfg) is False

@@ -12,16 +12,17 @@ from PyQt6.QtWidgets import QApplication
 from . import __version__, paths, sprites, storage
 from .guard import guarded
 from .bus import CatBus
-from .cat import SPRITE, Cat
+from .cat import Cat
 from .play import WiggleDetector
 from .ui.overlay import OverlayManager
+from .ui.settings import SettingsDialog
 from .ui.tray import CatTray
 from .world import Rect, World
 
 TICK_MS = 33
 SAVE_MS = 60_000
 TRAY_MS = 1_000
-DRAG_GRAB_OFFSET = 75  # Cursor greift die Katze am Nacken
+DRAG_GRAB_FACTOR = 0.78  # Cursor greift die Katze am Nacken
 
 
 def _rect(r) -> Rect:
@@ -60,7 +61,9 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     state_file = paths.state_file()
-    cat = Cat(storage.load(state_file), random.Random())
+    cfg_file = paths.config_file()
+    cfg = storage.load_config(cfg_file)
+    cat = Cat(storage.load(state_file), random.Random(), cfg)
     cat.home_output = app.primaryScreen().name()
     state = {"world": fallback_world(app), "last": time.monotonic()}
     wiggle = WiggleDetector()
@@ -68,7 +71,8 @@ def main(argv: list[str] | None = None) -> int:
     bus.load_sensor()
 
     engine = QQmlEngine()
-    overlays = OverlayManager(engine, sprites.ensure_atlas(paths.cache_dir()), debug)
+    overlays = OverlayManager(engine, sprites.ensure_atlas(paths.cache_dir()),
+                              debug or cfg.debug_lines)
     tray = CatTray(cat)
 
     overlays.petted.connect(guarded(cat.pet))
@@ -77,7 +81,7 @@ def main(argv: list[str] | None = None) -> int:
     def drag_moved(x, y):
         if cat.state != "dragged":  # nach Drag-Timeout wieder aufnehmen
             cat.start_drag()
-        cat.drag_to(x, y + DRAG_GRAB_OFFSET)
+        cat.drag_to(x, y + cat.sprite * DRAG_GRAB_FACTOR)
 
     overlays.dragMoved.connect(guarded(drag_moved))
     overlays.released.connect(guarded(cat.release))
@@ -88,6 +92,22 @@ def main(argv: list[str] | None = None) -> int:
     tray.pauseToggled.connect(guarded(cat.set_paused))
     tray.quitRequested.connect(guarded(app.quit))
 
+    def config_changed(name: str) -> None:
+        if name == "debug_lines":
+            overlays.set_debug(debug or cfg.debug_lines)
+        storage.try_save(cfg_file, cfg)
+
+    def show_settings() -> None:
+        dlg = state.get("dialog")
+        if dlg is None:
+            dlg = state["dialog"] = SettingsDialog(cfg)
+            dlg.changed.connect(guarded(config_changed))
+        dlg.show()
+        dlg.raise_()
+        dlg.activateWindow()
+
+    tray.settingsRequested.connect(guarded(show_settings))
+
     def tick():
         now = time.monotonic()
         dt, state["last"] = now - state["last"], now
@@ -96,8 +116,9 @@ def main(argv: list[str] | None = None) -> int:
             state["world"] = world
         for x, y, t in bus.take_cursor_samples():
             wiggle.feed(x, y, t)
-        sprite = (cat.x - SPRITE / 2, cat.y - SPRITE, cat.x + SPRITE / 2, cat.y)
-        wiggling = wiggle.is_wiggling(cat.x, cat.y - SPRITE / 2, now, avoid=sprite)
+        size = cat.sprite
+        sprite = (cat.x - size / 2, cat.y - size, cat.x + size / 2, cat.y)
+        wiggling = wiggle.is_wiggling(cat.x, cat.y - size / 2, now, avoid=sprite)
         cat.tick(dt, state["world"], bus.locked, cursor=wiggle.last, wiggling=wiggling)
         overlays.render(cat, state["world"], now)
 

@@ -24,6 +24,10 @@ data/taskbar-cat.desktop     Vorlage ohne festen Pfad (Exec=taskbar-cat)
 taskbar_cat/
   kwin/taskbar-cat-sensor.js KWin-Script, Fenster-Sensor (Paketdatei)
   paths.py                   XDG-Verzeichnisse, mitgelieferte Dateien auflösen
+  config.py                  einstellbare Werte + SPECS (Grenzen, Beschriftung)
+  autostart.py               ~/.config/autostart/taskbar-cat.desktop verwalten
+  data/taskbar-cat.desktop   Desktop-Vorlage (Paketdatei, kein fester Pfad)
+  ui/settings.py             Einstellungsdialog, aus config.SPECS aufgebaut
   __main__.py                Start, Single-Instance, Verdrahtung
   bus.py                     D-Bus-Service, KWin-Script laden/entladen, ScreenSaver-Signal
   world.py                   Weltmodell: Plattformen aus Fenstern + Arbeitsflächen (rein, kein Qt)
@@ -95,7 +99,8 @@ Verhaltenszustände: `idle_sit`, `walk`, `approach`, `jump`, `fall`, `climb`, `h
   - Linksklick: streicheln (+2 Zuneigung).
   - Reiben: >= 3 Richtungswechsel der Maus über der Katze innerhalb 1 s = eine Streichelbewegung.
   - Drag (Maus gedrückt + > 6 px Bewegung): `dragged`, Katze folgt Cursor (auch über Monitore); Loslassen -> `thrown` mit Mausgeschwindigkeit der letzten 100 ms.
-  - Rechtsklick-Menü: Füttern, Streicheln, Schlafen schicken, Zum Boden rufen, Status, Pausieren (versteckt + Zeit eingefroren), Beenden.
+  - Rechtsklick-Menü: Füttern, Streicheln, Schlafen schicken, Zum Boden rufen, Status, Pausieren (versteckt + Zeit eingefroren), "Beim Anmelden starten" (Haken, verwaltet die Autostart-Datei), "Einstellungen ...", Beenden.
+  - **Einstellungen** (`ui/settings.py`): Dialog aus `config.SPECS` erzeugt, Werte greifen sofort und werden in `config.json` gespeichert; Knopf für Standardwerte. Einstellbar: Sprite-Größe, Plattformlinien, Mauszeiger fangen, Lauf- und Klettergeschwindigkeit, Stunden bis Sättigung/Zuneigung leer, Futter- und Streichelmenge, Wahrscheinlichkeiten für Sprung/Klettern/Hängen.
 - **Tray** (`ui/tray.py`): Icon = Katzenkopf in Stimmungsvariante; Tooltip mit Sättigung/Zuneigung/Energie und Stimmung; Linksklick = Füttern; Menü wie oben.
 
 ## Lebenszyklus
@@ -107,6 +112,8 @@ Verhaltenszustände: `idle_sit`, `walk`, `approach`, `jump`, `fall`, `climb`, `h
 - Sperre: `org.freedesktop.ScreenSaver.ActiveChanged(true)` -> Zeit eingefroren, bis `false`.
 
 ## Persistenz
+
+Einstellungen: `$XDG_CONFIG_HOME/taskbar-cat/config.json`, geschrieben bei jeder Änderung im Dialog, unbekannte Keys werden ignoriert, Werte auf die Grenzen aus `SPECS` begrenzt.
 
 `$XDG_DATA_HOME/taskbar-cat/state.json` (Standard `~/.local/share/...`): Bedürfnisse, Zeit unter 10 je Wert, Gesamt-Session-Zeit. Speichern alle 60 s und beim Beenden (atomar: temp + rename). Nicht lesbar -> Datei nach `state.json.broken-<timestamp>` verschieben, Start mit Standardwerten. Position wird nicht gespeichert (Start immer auf dem Boden des primären Monitors).
 
@@ -125,4 +132,4 @@ Verhaltenszustände: `idle_sit`, `walk`, `approach`, `jump`, `fall`, `climb`, `h
 
 ## Nicht im Umfang
 
-Tod/Weglaufen, Offline-Verfall, mehrere Katzen, Sound, Konfigurationsdialog, Git-Repo/Commits (nur auf ausdrücklichen Wunsch).
+Tod/Weglaufen, Offline-Verfall, mehrere Katzen, Sound.

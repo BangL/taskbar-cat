@@ -1,4 +1,3 @@
 include pytest.ini install.sh
-recursive-include data *.desktop
 recursive-include docs *.md
 recursive-include tests *.py

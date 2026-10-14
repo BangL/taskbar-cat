@@ -8,7 +8,7 @@ from PyQt6.QtGui import QGuiApplication, QRegion, QScreen
 from PyQt6.QtQml import QQmlComponent, QQmlEngine
 
 from .. import sprites
-from ..cat import SPRITE, Cat
+from ..cat import Cat
 from ..guard import guarded
 from ..interaction import DragTracker, RubDetector
 from ..paths import resource_file
@@ -55,6 +55,13 @@ class OverlayManager(QObject):
         app.screenAdded.connect(guarded(self._add))
         app.screenRemoved.connect(guarded(self._remove))
 
+    def set_debug(self, on: bool) -> None:
+        self._debug = on
+        for ov in self._overlays.values():
+            ov.world = None  # erzwingt Neuzeichnen beim nächsten render
+            if not on:
+                ov.window.setProperty("platforms", [])
+
     def _add(self, screen: QScreen) -> None:
         win = self._component.createWithInitialProperties({"atlas": self._atlas})
         if win is None:
@@ -84,10 +91,12 @@ class OverlayManager(QObject):
         for ov in self._overlays.values():
             o = ov.origin
             lx, ly = cat.x - o.x(), cat.y - o.y()
-            sprite = QRect(round(lx - SPRITE / 2), round(ly - SPRITE), SPRITE, SPRITE)
+            size = cat.sprite
+            sprite = QRect(round(lx - size / 2), round(ly - size), size, size)
             here = cat.visible and sprite.intersects(QRect(QPoint(0, 0), ov.screen.geometry().size()))
             w = ov.window
             w.setProperty("catVisible", here)
+            w.setProperty("spriteSize", size)
             if here:
                 w.setProperty("catX", lx)
                 w.setProperty("catY", ly)

@@ -1,6 +1,9 @@
 import random
 
+import pytest
+
 from taskbar_cat.cat import HANG_DROP, SPRITE, Cat
+from taskbar_cat.config import Config
 from taskbar_cat.needs import Mood, Needs
 from taskbar_cat.world import Output, Rect, Win, World
 
@@ -20,8 +23,8 @@ def win(id, x, y, w=800, h=400, stack=0, fs=False):
     return Win(id, Rect(x, y, w, h), stack, fs, False)
 
 
-def make_cat(**needs):
-    return Cat(Needs(**needs), random.Random(1))
+def make_cat(cfg=None, **needs):
+    return Cat(Needs(**needs), random.Random(1), cfg)
 
 
 def run(cat, w, seconds, locked=False):
@@ -574,3 +577,46 @@ def test_every_state_has_a_sprite_animation():
     for s in states | {"thrown", "hidden"}:
         c.state = s
         assert c.frame_key(0)[0] in sprites.ANIMS, s
+
+
+def test_walk_speed_from_config():
+    cfg = Config()
+    cfg.set("walk_speed", 120)
+    w = world()
+    c = make_cat(cfg)
+    c.spawn(w)
+    c.facing = 1
+    c._set("walk", 10)
+    start = c.x
+    run(c, w, 1)
+    assert c.x - start == pytest.approx(120, abs=6)   # Standard waere 60 px/s
+
+
+def test_sprite_size_follows_config():
+    cfg = Config()
+    c = make_cat(cfg)
+    assert c.sprite == SPRITE
+    cfg.set("sprite_scale", 5)
+    assert c.sprite == 160
+
+
+def test_play_can_be_switched_off():
+    cfg = Config()
+    cfg.set("play_enabled", False)
+    w = world()
+    c = make_cat(cfg)
+    c.spawn(w)
+    for _ in range(30):
+        c.tick(DT, w, False, cursor=(c.x + 60, c.y - 40), wiggling=True)
+    assert c.state not in ("chase", "crouch", "jump")
+
+
+def test_jump_probability_zero_keeps_her_grounded():
+    cfg = Config()
+    for name in ("p_jump", "p_climb", "p_hang"):
+        cfg.set(name, 0)
+    w = world(win("a", 200, 700))
+    c = make_cat(cfg)
+    c.spawn(w)
+    run(c, w, 120)
+    assert c.platform.is_floor

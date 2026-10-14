@@ -26,6 +26,9 @@ Desktop-Eintrag und Icon für den aktuellen Benutzer, ohne root:
     ./install.sh --autostart  # zusätzlich beim Anmelden starten
     ./install.sh --uninstall  # wieder entfernen
 
+Den Autostart kann man danach jederzeit über den Haken im Menü der Katze
+umschalten; bei Installation über ein Paket ist das der einzige nötige Weg.
+
 Das Skript ermittelt das Startkommando selbst: ist das Paket installiert, wird
 `taskbar-cat` benutzt, sonst `python3 -m taskbar_cat` aus diesem Verzeichnis.
 In `data/taskbar-cat.desktop` steht deshalb kein fester Pfad.
@@ -39,14 +42,18 @@ Als Python-Paket (eigenes venv oder `--user`):
 - Klick oder Maus über der Katze hin- und herreiben: streicheln
 - Ziehen und loslassen: werfen
 - Mit dem Mauszeiger neben der Katze fuchteln: sie spielt und versucht zu fangen
-- Rechtsklick auf Katze oder Tray-Icon: Menü (Füttern, Schlafen, Zum Boden, Pause, ...)
+- Rechtsklick auf Katze oder Tray-Icon: Menü (Füttern, Schlafen, Zum Boden, Pause, Autostart, Einstellungen, ...)
 - Linksklick aufs Tray-Icon: füttern
+- "Einstellungen ...": Größe, Tempo, Verfallszeiten, Futter-/Streichelmenge und Wahrscheinlichkeiten für Sprung, Klettern und Hängen; Werte greifen sofort
+- "Beim Anmelden starten": Haken verwaltet `~/.config/autostart/taskbar-cat.desktop`
 
 ## Dateien
 
 - Zustand: `$XDG_DATA_HOME/taskbar-cat/state.json` (Standard `~/.local/share/...`)
+- Einstellungen: `$XDG_CONFIG_HOME/taskbar-cat/config.json` (Standard `~/.config/...`)
+- Autostart: `$XDG_CONFIG_HOME/autostart/taskbar-cat.desktop`
 - Sprite-Cache: `$XDG_CACHE_HOME/taskbar-cat/` (Standard `~/.cache/...`)
-- KWin-Sensor: `taskbar_cat/kwin/taskbar-cat-sensor.js` (wird als Paketdatei mitgeliefert)
+- KWin-Sensor und Desktop-Vorlage: `taskbar_cat/kwin/`, `taskbar_cat/data/` (Paketdateien)
 - KWin-Script-Logs: `journalctl --user -f | grep -i kwin`
 - Icon neu erzeugen: `python3 -m taskbar_cat.sprites --icon ~/pfad/icon.png` (`--size`, `--mood`, `--atlas`; `--help` zeigt alles)
 

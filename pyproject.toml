@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "taskbar-cat"
-version = "1.1.0"
+version = "1.2.0"
 description = "Pixel-Art-Tamagotchi-Katze für KDE Plasma 6 / Wayland"
 readme = "README.md"
 license = "MIT"
@@ -30,4 +30,4 @@ taskbar-cat = "taskbar_cat.__main__:main"
 packages = ["taskbar_cat", "taskbar_cat.ui"]
 
 [tool.setuptools.package-data]
-taskbar_cat = ["kwin/*.js", "ui/*.qml"]
+taskbar_cat = ["kwin/*.js", "ui/*.qml", "data/*.desktop"]

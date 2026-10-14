@@ -24,6 +24,7 @@ Window {
     property int srcY: 0
     property bool flip: false
     property bool catVisible: false
+    property int spriteSize: 96
     property var platforms: []
 
     signal catPressed(real x, real y, int button)
@@ -48,8 +49,8 @@ Window {
         sourceClipRect: Qt.rect(win.srcX, win.srcY, 32, 32)
         x: Math.round(win.catX - width / 2)
         y: Math.round(win.catY - height)
-        width: 96
-        height: 96
+        width: win.spriteSize
+        height: win.spriteSize
         smooth: false
         mirror: win.flip
         visible: win.catVisible

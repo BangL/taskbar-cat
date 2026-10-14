@@ -3,18 +3,18 @@ import dataclasses
 import math
 import random
 
+from .config import Config
 from .needs import Mood, Needs
 from .world import Ceiling, Platform, Rect, Wall, World
 
+_DEFAULTS = Config()
 GRAVITY = 2500
-WALK_SPEED = 60
-SPRITE = 96
+SPRITE = _DEFAULTS.sprite_px
 MAX_PHYS_DT = 0.1
 MAX_SUBSTEP_PX = 20
 ANIM_FPS = 6
 MAX_THROW = 4000
 DRAG_TIMEOUT = 5.0
-CLIMB_SPEED = 80
 CLIMB_OFFSET = 18   # Abstand Sprite-Mitte zur Wand (Pfoten liegen an der Kante)
 MOUNT_ABOVE = 40    # Pfoten so weit unter der Oberkante -> hochziehen
 HANG_DROP = 93      # Pfoten an der Unterkante, Füße so weit darunter
@@ -26,7 +26,6 @@ POUNCE_RANGE = 200
 SWIPE_MAX_UP = 350
 MAX_POUNCE_VX = 900
 PLAY_REWARD = 3
-P_JUMP, P_CLIMB, P_HANG = 0.15, 0.30, 0.40  # kumulierte Wahrscheinlichkeiten in _choose
 
 AIRBORNE = ("jump", "fall", "thrown")
 CLINGING = ("climb", "hang")
@@ -36,9 +35,10 @@ MOOD_NAME = {Mood.NORMAL: "normal", Mood.SAD: "sad", Mood.SICK: "sick"}
 
 
 class Cat:
-    def __init__(self, needs: Needs, rng: random.Random):
+    def __init__(self, needs: Needs, rng: random.Random, cfg: Config | None = None):
         self.needs = needs
         self.rng = rng
+        self.cfg = cfg or _DEFAULTS
         self.x = 0.0
         self.y = 0.0
         self.vx = 0.0
@@ -67,6 +67,10 @@ class Cat:
     # --- Zustand von außen ---
 
     @property
+    def sprite(self) -> int:
+        return self.cfg.sprite_px
+
+    @property
     def visible(self) -> bool:
         return self.state != "hidden" and not self.paused
 
@@ -83,12 +87,12 @@ class Cat:
         self.paused = p
 
     def feed(self) -> None:
-        self._lazy_after_eat = self.needs.feed()
+        self._lazy_after_eat = self.needs.feed(self.cfg)
         if self.grounded:
             self._set("eat", 3)
 
     def pet(self) -> None:
-        self.needs.pet()
+        self.needs.pet(self.cfg)
         if self.grounded:
             self._set("purr", 1.5)
 
@@ -166,7 +170,7 @@ class Cat:
         else:
             self._play_left = max(0.0, self._play_left - dt)
         if not locked:
-            self.needs.tick(dt, self._activity())
+            self.needs.tick(dt, self._activity(), self.cfg)
         if self.state == "dragged":
             # Release verloren (Grab vom Compositor abgebrochen) -> fallen lassen
             self._drag_idle += dt
@@ -254,8 +258,8 @@ class Cat:
                 self.x, self.vx = b.x, abs(self.vx) * 0.5
             elif self.x > b.right - 1:
                 self.x, self.vx = b.right - 1, -abs(self.vx) * 0.5
-            if self.y < b.y + SPRITE:
-                self.y, self.vy = b.y + SPRITE, 0
+            if self.y < b.y + self.sprite:
+                self.y, self.vy = b.y + self.sprite, 0
             if self.vx:
                 self.facing = 1 if self.vx > 0 else -1
             if self._pounce and not self._caught and self._touches_cursor():
@@ -274,7 +278,7 @@ class Cat:
                 if p is not None:
                     self._land(world, p)
                     return
-            if self.y > b.bottom + SPRITE:
+            if self.y > b.bottom + self.sprite:
                 self.spawn(world)
                 return
 
@@ -323,7 +327,7 @@ class Cat:
                 self._choose(world)
 
     def _walk(self, dt: float, world: World) -> None:
-        speed = WALK_SPEED / 2 if self.needs.mood == Mood.SAD else WALK_SPEED
+        speed = self._speed(self.cfg.walk_speed)
         self.x += self.facing * speed * dt
         p = self.platform
         edge = p.x2 if self.facing > 0 else p.x1
@@ -340,12 +344,12 @@ class Cat:
     # --- Spielen ---
 
     def _can_play(self) -> bool:
-        return (self.needs.mood != Mood.SICK and self.needs.energy >= 20
+        return (self.cfg.play_enabled and self.needs.mood != Mood.SICK and self.needs.energy >= 20
                 and self.state not in NO_PLAY)
 
     def _touches_cursor(self) -> bool:
         cx, cy = self._cursor
-        return abs(cx - self.x) <= SPRITE / 2 and self.y - SPRITE <= cy <= self.y
+        return abs(cx - self.x) <= self.sprite / 2 and self.y - self.sprite <= cy <= self.y
 
     def _play(self, dt: float, world: World) -> None:
         cx, cy = self._cursor
@@ -360,7 +364,7 @@ class Cat:
             return
         if abs(dx) < 120 and 120 < above <= SWIPE_MAX_UP:
             self._pounce_at(cx, cy, "swipe")
-        elif math.hypot(dx, cy - (self.y - SPRITE / 2)) < POUNCE_RANGE:
+        elif math.hypot(dx, cy - (self.y - self.sprite / 2)) < POUNCE_RANGE:
             self._set("crouch", self.rng.uniform(0.5, 1.0))
         else:
             self.state = "chase"
@@ -388,7 +392,7 @@ class Cat:
         return base / 2 if self.needs.mood == Mood.SAD else base
 
     def _approach(self, dt: float, world: World) -> None:
-        step = self._speed(WALK_SPEED) * dt
+        step = self._speed(self.cfg.walk_speed) * dt
         if abs(self._target_x - self.x) <= step:
             self.x = self._target_x
             self._begin_climb(world)
@@ -463,7 +467,7 @@ class Cat:
             if self._timer <= 0:
                 self._start_fall()
             return
-        self.y -= self._speed(CLIMB_SPEED) * dt
+        self.y -= self._speed(self.cfg.climb_speed) * dt
         if self.y <= self._wall.y1 + MOUNT_ABOVE:
             self._mount(world)
 
@@ -492,9 +496,12 @@ class Cat:
             return
         p = self.platform
         r = self.rng.random()
-        reach = self._jump_targets(world, p) if r < P_JUMP else []
-        walls = world.walls_near(p, self.x, CLIMB_OFFSET) if P_JUMP <= r < P_CLIMB else []
-        ceils = world.ceilings_near(p, self.x, HANG_MIN_GAP, HANG_MAX_GAP) if P_CLIMB <= r < P_HANG else []
+        p_jump = self.cfg.p_jump
+        p_climb = p_jump + self.cfg.p_climb
+        p_hang = p_climb + self.cfg.p_hang
+        reach = self._jump_targets(world, p) if r < p_jump else []
+        walls = world.walls_near(p, self.x, CLIMB_OFFSET) if p_jump <= r < p_climb else []
+        ceils = world.ceilings_near(p, self.x, HANG_MIN_GAP, HANG_MAX_GAP) if p_climb <= r < p_hang else []
         if reach:
             self._jump_to(self.rng.choice(reach))
         elif walls:
@@ -509,7 +516,7 @@ class Cat:
 
     def _jump_targets(self, world: World, p: Platform) -> list[Platform]:
         # Scheitel liegt 60 px über dem Ziel; Sprite muss darunter noch auf den Schirm passen
-        top = world.bounds().y + SPRITE + 60
+        top = world.bounds().y + self.sprite + 60
         return [q for q in world.reachable(p, self.x, max_up=math.inf) if q.y >= top]
 
     def _jump_to(self, q: Platform) -> None:

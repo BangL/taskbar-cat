@@ -31,7 +31,7 @@ else
 fi
 
 mkdir -p "$apps" "$icons"
-sed -e "s|^Exec=.*|$exec_line|" "$src/data/$desktop" > "$apps/$desktop"
+sed -e "s|^Exec=.*|$exec_line|" "$src/taskbar_cat/data/$desktop" > "$apps/$desktop"
 if [ -n "$path_line" ]; then
     printf '%s\n' "$path_line" >> "$apps/$desktop"
 fi

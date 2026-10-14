@@ -2,11 +2,14 @@
 import enum
 from dataclasses import asdict, dataclass, fields
 
-SATIETY_DECAY = 100 / (8 * 3600)
-AFFECTION_DECAY = 100 / (4 * 3600)
+from .config import Config
+
+_DEFAULTS = Config()
+SATIETY_DECAY = _DEFAULTS.satiety_decay
+AFFECTION_DECAY = _DEFAULTS.affection_decay
 ENERGY_RATE = {"active": -1 / 60, "rest": -0.2 / 60, "sleep": 2 / 60}
-FEED_AMOUNT = 40
-PET_AMOUNT = 2
+FEED_AMOUNT = _DEFAULTS.feed_amount
+PET_AMOUNT = _DEFAULTS.pet_amount
 MAX_DT = 5.0
 SICK_AFTER_S = 7200
 
@@ -43,24 +46,26 @@ class Needs:
     session_s: float = 0
     mood: Mood = Mood.NORMAL
 
-    def tick(self, dt: float, activity: str) -> None:
+    def tick(self, dt: float, activity: str, cfg: Config | None = None) -> None:
+        cfg = cfg or _DEFAULTS
         dt = max(0.0, min(dt, MAX_DT))
         self.session_s += dt
-        self.satiety = _clamp(self.satiety - SATIETY_DECAY * dt)
-        self.affection = _clamp(self.affection - AFFECTION_DECAY * dt)
+        self.satiety = _clamp(self.satiety - cfg.satiety_decay * dt)
+        self.affection = _clamp(self.affection - cfg.affection_decay * dt)
         self.energy = _clamp(self.energy + ENERGY_RATE[activity] * dt)
         self.low_satiety_s = self.low_satiety_s + dt if self.satiety < 10 else 0
         self.low_affection_s = self.low_affection_s + dt if self.affection < 10 else 0
         self.mood = compute_mood(self.mood, self.satiety, self.affection,
                                  self.low_satiety_s, self.low_affection_s)
 
-    def feed(self) -> bool:
-        overfed = self.satiety > 60
-        self.satiety = _clamp(self.satiety + FEED_AMOUNT)
+    def feed(self, cfg: Config | None = None) -> bool:
+        cfg = cfg or _DEFAULTS
+        overfed = self.satiety > 100 - cfg.feed_amount
+        self.satiety = _clamp(self.satiety + cfg.feed_amount)
         return overfed
 
-    def pet(self) -> None:
-        self.affection = _clamp(self.affection + PET_AMOUNT)
+    def pet(self, cfg: Config | None = None) -> None:
+        self.affection = _clamp(self.affection + (cfg or _DEFAULTS).pet_amount)
 
     def to_dict(self) -> dict:
         d = asdict(self)

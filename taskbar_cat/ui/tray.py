@@ -3,7 +3,7 @@ from PyQt6.QtCore import QObject, Qt, pyqtSignal
 from PyQt6.QtGui import QIcon, QPixmap
 from PyQt6.QtWidgets import QMenu, QMessageBox, QSystemTrayIcon
 
-from .. import sprites
+from .. import autostart, sprites
 from ..cat import MOOD_NAME, Cat
 from ..guard import guarded
 
@@ -16,6 +16,7 @@ class CatTray(QObject):
     sleepRequested = pyqtSignal()
     floorRequested = pyqtSignal()
     pauseToggled = pyqtSignal(bool)
+    settingsRequested = pyqtSignal()
     quitRequested = pyqtSignal()
 
     def __init__(self, cat: Cat):
@@ -34,6 +35,12 @@ class CatTray(QObject):
         self._pause = self._menu.addAction("Pausieren")
         self._pause.setCheckable(True)
         self._pause.toggled.connect(self.pauseToggled.emit)
+        self._autostart = self._menu.addAction("Beim Anmelden starten")
+        self._autostart.setCheckable(True)
+        self._autostart.toggled.connect(guarded(self._toggle_autostart))
+        self._menu.addAction("Einstellungen ...", self.settingsRequested.emit)
+        self._menu.aboutToShow.connect(guarded(self._sync_autostart))
+        self._menu.addSeparator()
         self._menu.addAction("Beenden", self.quitRequested.emit)
         self._tray = QSystemTrayIcon(self._icons["normal"])
         self._tray.setContextMenu(self._menu)
@@ -43,6 +50,16 @@ class CatTray(QObject):
 
     def menu(self) -> QMenu:
         return self._menu
+
+    def _sync_autostart(self) -> None:
+        """Haken am Dateizustand ausrichten (kann von außen geändert worden sein)."""
+        self._autostart.blockSignals(True)
+        self._autostart.setChecked(autostart.is_enabled())
+        self._autostart.blockSignals(False)
+
+    def _toggle_autostart(self, on: bool) -> None:
+        if autostart.set_enabled(on) != on:
+            self._sync_autostart()
 
     def _activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
         if reason == QSystemTrayIcon.ActivationReason.Trigger:

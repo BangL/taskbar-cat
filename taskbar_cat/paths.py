@@ -20,6 +20,20 @@ def cache_dir() -> Path:
     return _xdg("XDG_CACHE_HOME", ".cache")
 
 
+def config_dir() -> Path:
+    return _xdg("XDG_CONFIG_HOME", ".config")
+
+
+def config_file() -> Path:
+    return config_dir() / "config.json"
+
+
+def autostart_file() -> Path:
+    base = os.environ.get("XDG_CONFIG_HOME", "")
+    root = Path(base) if os.path.isabs(base) else Path.home() / ".config"
+    return root / "autostart" / "taskbar-cat.desktop"
+
+
 def state_file() -> Path:
     return data_dir() / "state.json"
 

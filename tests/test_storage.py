@@ -1,4 +1,5 @@
 from taskbar_cat import storage
+from taskbar_cat.config import Config
 from taskbar_cat.needs import Needs
 
 
@@ -39,3 +40,20 @@ def test_try_save_swallows_errors(tmp_path):
     blocker.write_text("x")
     assert storage.try_save(blocker / "state.json", Needs()) is False
     assert storage.try_save(tmp_path / "ok.json", Needs()) is True
+
+
+def test_config_roundtrip(tmp_path):
+    cfg = Config()
+    cfg.set("walk_speed", 90)
+    cfg.set("debug_lines", True)
+    path = tmp_path / "config.json"
+    assert storage.try_save(path, cfg)
+    assert storage.load_config(path) == cfg
+
+
+def test_broken_config_falls_back_to_defaults(tmp_path):
+    path = tmp_path / "config.json"
+    path.write_text("{kaputt")
+    assert storage.load_config(path) == Config()
+    assert not path.exists()
+    assert list(tmp_path.glob("config.json.broken-*"))
