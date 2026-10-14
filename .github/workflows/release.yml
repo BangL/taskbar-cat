@@ -13,6 +13,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # ganze Historie, die Notes kommen aus git log
 
       - name: Systempakete
         run: |
@@ -53,11 +55,30 @@ jobs:
         continue-on-error: true
         run: sudo apt-get install --simulate ./dist/taskbar-cat_*_all.deb
 
+      - name: Notes aus den Commits
+        run: |
+          prev=$(git describe --tags --abbrev=0 "$GITHUB_REF_NAME^" 2>/dev/null || true)
+          repo="${{ github.server_url }}/${{ github.repository }}"
+          {
+            if [ -n "$prev" ]; then
+              echo "## Änderungen seit $prev"
+            else
+              echo "## Änderungen"
+            fi
+            echo
+            git log --no-merges --reverse --pretty="- %s (%h)" ${prev:+"$prev.."}"$GITHUB_REF_NAME"
+            if [ -n "$prev" ]; then
+              echo
+              echo "**Alle Commits**: $repo/compare/$prev...$GITHUB_REF_NAME"
+            fi
+          } > notes.md
+          cat notes.md
+
       - name: Release anlegen
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "$GITHUB_REF_NAME" \
             --title "Taskbar-Cat ${GITHUB_REF_NAME#v}" \
-            --generate-notes \
+            --notes-file notes.md \
             dist/*.whl dist/*.tar.gz dist/taskbar-cat_*_all.deb
