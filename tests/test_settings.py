@@ -25,6 +25,14 @@ def test_groups_cover_all_fields():
     assert sorted(shown + ["blocked_outputs"]) == sorted(Config().to_dict())
 
 
+def test_groups_are_spread_over_two_columns(qapp):
+    """Sonst wird der Dialog mit jeder neuen Einstellung höher."""
+    dlg = SettingsDialog(Config(), screens=SCREENS)
+    assert all(col.count() > 1 for col in dlg._columns)      # Gruppen plus Stretch
+    assert max(dlg._heights) - min(dlg._heights) <= max(len(names) for _, names in GROUPS)
+    assert dlg.sizeHint().width() > dlg.sizeHint().height()
+
+
 def test_widgets_write_through_and_signal(qapp):
     cfg = Config()
     dlg = SettingsDialog(cfg)

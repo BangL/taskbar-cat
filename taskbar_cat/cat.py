@@ -28,13 +28,11 @@ SWIPE_MAX_UP = 350
 DIVE_MIN_DROP = 40   # so weit unter den Pfoten lohnt der Sprung nach unten
 MAX_POUNCE_VX = 900
 PLAY_REWARD = 3
-P_GROOM = 0.35       # Anteil der Ruhepausen, in denen sie sich putzt
 SHAKE_MIN_PX = 60    # Strecke, die ein Richtungswechsel wert ist
-SHAKE_LIMIT = 8      # so viele Wechsel am Stück, dann wird ihr schlecht
 SHAKE_DECAY = 1.2    # Wechsel pro Sekunde, die wieder vergessen werden
 VOMIT_S = 2.5
 VOMIT_SATIETY = 25   # so viel kommt wieder hoch
-JUMP_MAX_SIDE = 320  # so weit springt sie seitlich höchstens
+JUMP_MAX_SIDE = _DEFAULTS.jump_max_side
 FLEE_FACTOR = 4      # so viel schneller als sonst läuft sie vom gesperrten Monitor
 FLEE_TIMEOUT = 30.0  # kommt sie nicht weg (Monitore nicht benachbart), doch umsetzen
 
@@ -175,7 +173,8 @@ class Cat:
             if d != self._shake_dir:
                 if self._shake_px >= SHAKE_MIN_PX:   # ein ordentlicher Ruck, kein Zittern
                     self._shakes += 1
-                    self._queasy = self._queasy or self._shakes >= SHAKE_LIMIT
+                    self._queasy = self._queasy or (self.cfg.shake_enabled
+                                                    and self._shakes >= self.cfg.shake_limit)
                 self._shake_dir, self._shake_px = d, 0.0
             self._shake_px += abs(x - self.x)
             self.facing = d
@@ -664,7 +663,7 @@ class Cat:
         elif ceils:
             self.start_hang(world, self.rng.choice(ceils))
         elif self.rng.random() < 0.5:
-            if self.rng.random() < P_GROOM:
+            if self.rng.random() < self.cfg.p_groom:
                 self._set("groom", self.rng.uniform(3, 7))
             else:
                 self._set("idle_sit", self.rng.uniform(3, 10))
@@ -675,14 +674,14 @@ class Cat:
     def _jump_targets(self, world: World, p: Platform) -> list[Platform]:
         # Scheitel liegt 60 px über dem Ziel; Sprite muss darunter noch auf den Schirm passen
         top = world.bounds().y + self.sprite + 60
-        reach = world.reachable(p, self.x, max_up=math.inf, max_side=JUMP_MAX_SIDE)
+        reach = world.reachable(p, self.x, max_up=math.inf, max_side=self.cfg.jump_max_side)
         return [q for q in reach if q.y >= top]
 
     def _jump_to(self, q: Platform) -> None:
         # Nur in Reichweite landen: breite Plattformen (der Boden des Nachbarmonitors)
         # liefern sonst Ziele quer über den Schirm und damit absurde Geschwindigkeiten
-        lo = max(q.x1 + 20, self.x - JUMP_MAX_SIDE)
-        hi = min(q.x2 - 20, self.x + JUMP_MAX_SIDE)
+        lo = max(q.x1 + 20, self.x - self.cfg.jump_max_side)
+        hi = min(q.x2 - 20, self.x + self.cfg.jump_max_side)
         tx = self.rng.uniform(lo, hi) if lo < hi else min(max(self.x, q.x1), q.x2)
         dy = q.y - self.y
         h = max(0.0, -dy) + 60

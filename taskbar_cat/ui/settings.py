@@ -1,6 +1,7 @@
 """Einstellungsdialog, aufgebaut aus config.SPECS (Grenzen stehen nur dort)."""
 from PyQt6.QtWidgets import (QCheckBox, QColorDialog, QDialog, QDialogButtonBox, QDoubleSpinBox,
-                             QFormLayout, QGroupBox, QPushButton, QSpinBox, QVBoxLayout, QWidget)
+                             QFormLayout, QGroupBox, QHBoxLayout, QPushButton, QSpinBox,
+                             QVBoxLayout, QWidget)
 from PyQt6.QtCore import Qt, QSize, pyqtSignal
 from PyQt6.QtGui import QColor, QIcon, QPainter, QPixmap
 
@@ -9,7 +10,8 @@ from ..guard import guarded
 
 GROUPS = (
     ("Darstellung", ("sprite_scale", "fur_color", "debug_lines")),
-    ("Verhalten", ("play_enabled", "walk_speed", "climb_speed", "p_jump", "p_climb", "p_hang")),
+    ("Verhalten", ("play_enabled", "shake_enabled", "walk_speed", "climb_speed", "jump_max_side",
+                   "shake_limit", "p_jump", "p_climb", "p_hang", "p_groom")),
     ("Bedürfnisse", ("satiety_hours", "affection_hours", "feed_amount", "pet_amount")),
 )
 
@@ -111,6 +113,12 @@ class SettingsDialog(QDialog):
         self._widgets: dict[str, QWidget] = {}
         self._screens: dict[str, QCheckBox] = {}
         layout = QVBoxLayout(self)
+        columns = QHBoxLayout()
+        layout.addLayout(columns)
+        self._columns = [QVBoxLayout(), QVBoxLayout()]
+        self._heights = [0, 0]
+        for col in self._columns:
+            columns.addLayout(col)
         for title, names in GROUPS:
             box = QGroupBox(title)
             form = QFormLayout(box)
@@ -121,8 +129,10 @@ class SettingsDialog(QDialog):
                 if spec.hint:
                     w.setToolTip(spec.hint)
                 form.addRow("" if spec.kind == "bool" else f"{spec.label}:", w)
-            layout.addWidget(box)
-        self._build_screens(layout, screen_choices() if screens is None else screens)
+            self._place(box, len(names))
+        self._build_screens(screen_choices() if screens is None else screens)
+        for col in self._columns:
+            col.addStretch(1)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close
                                    | QDialogButtonBox.StandardButton.RestoreDefaults)
         buttons.rejected.connect(self.hide)
@@ -130,7 +140,13 @@ class SettingsDialog(QDialog):
             guarded(self.restore_defaults))
         layout.addWidget(buttons)
 
-    def _build_screens(self, layout: QVBoxLayout, screens: list[tuple[str, str]]) -> None:
+    def _place(self, box: QGroupBox, rows: int) -> None:
+        """Gruppe in die kürzere Spalte: der Dialog wird lieber breit als hoch."""
+        i = self._heights.index(min(self._heights))
+        self._columns[i].addWidget(box)
+        self._heights[i] += rows + 1        # der Rahmen zählt wie eine Zeile
+
+    def _build_screens(self, screens: list[tuple[str, str]]) -> None:
         """Ein Haken je Monitor. Gesperrte, aber abgezogene Monitore bleiben sichtbar,
         sonst könnte man sie nie wieder freigeben."""
         known = {n for n, _ in screens}
@@ -147,7 +163,7 @@ class SettingsDialog(QDialog):
             w.toggled.connect(guarded(lambda v, n=name: self._toggle_screen(n, v)))
             self._screens[name] = w
             form.addRow("", w)
-        layout.addWidget(box)
+        self._place(box, len(screens))
 
     def _toggle_screen(self, name: str, allowed: bool) -> None:
         if not allowed and not any(b.isChecked() for b in self._screens.values()):

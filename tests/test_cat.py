@@ -224,6 +224,35 @@ def test_gentle_dragging_does_not_upset_her():
     assert c.state != "vomit"
 
 
+def test_shaking_can_be_switched_off():
+    cfg = Config()
+    cfg.set("shake_enabled", False)
+    w = world()
+    c = make_cat(cfg, satiety=80)
+    c.spawn(w)
+    shake(c, w, 20)
+    run(c, w, 2)
+    assert c.state != "vomit"
+    assert c.needs.satiety == pytest.approx(80, abs=0.1)
+
+
+def test_shake_limit_sets_the_threshold():
+    """Mit Schwelle 3 reichen vier Rucke, mit der Vorgabe 8 noch nicht."""
+    w = world()
+    cfg = Config()
+    cfg.set("shake_limit", 3)
+    c = make_cat(cfg)
+    c.spawn(w)
+    shake(c, w, 4)
+    run(c, w, 1)
+    assert c.state == "vomit"
+    patient = make_cat()
+    patient.spawn(w)
+    shake(patient, w, 4)
+    run(patient, w, 1)
+    assert patient.state != "vomit"
+
+
 def test_shaking_slowly_is_forgotten():
     w = world()
     c = make_cat()
@@ -254,6 +283,18 @@ def test_jump_to_the_next_monitor_stays_a_jump():
             if c.grounded:
                 break
         assert c.grounded and abs(c.x - 1900) <= JUMP_MAX_SIDE + 20, seed
+
+
+def test_jump_width_limits_the_targets():
+    """Die Kante 500 px weiter ist nur mit grösserer Sprungweite ein Ziel."""
+    w = world(win("a", 1400, 600))
+    c = make_cat()
+    c.spawn(w)
+    c.x = 900
+    p = c.platform
+    assert "a" not in [q.owner for q in c._jump_targets(w, p)]
+    c.cfg.set("jump_max_side", 600)
+    assert "a" in [q.owner for q in c._jump_targets(w, p)]
 
 
 def test_crawls_under_a_low_window_edge():
@@ -293,6 +334,20 @@ def test_she_grooms_herself_now_and_then():
         seen.add(c.state)
     assert "groom" in seen
     assert {"idle_sit", "walk"} <= seen      # putzen verdrängt die anderen Pausen nicht
+
+
+def test_grooming_can_be_switched_off():
+    cfg = Config()
+    cfg.set("p_groom", 0)
+    w = world()
+    c = make_cat(cfg)
+    c.spawn(w)
+    seen = set()
+    for _ in range(int(300 / DT)):
+        c.tick(DT, w, False)
+        seen.add(c.state)
+    assert "groom" not in seen
+    assert {"idle_sit", "walk"} <= seen
 
 
 def test_blocked_output_makes_her_walk_away():

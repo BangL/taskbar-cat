@@ -24,9 +24,15 @@ SPECS: dict[str, Spec] = {
     "fur_color": Spec("Fellfarbe", "color", hint="Streifen, Kontur und die kranke Katze "
                                                  "werden daraus abgeleitet"),
     "play_enabled": Spec("Mauszeiger fangen", "bool"),
+    "shake_enabled": Spec("Schütteln macht übel", "bool",
+                          hint="Wird sie beim Ziehen zu wild geschüttelt, kotzt sie"),
     "debug_lines": Spec("Plattformen einblenden", "bool", hint="Kanten, Wände und Decken als Linien"),
     "walk_speed": Spec("Laufgeschwindigkeit", "float", 5, 400, 5, "px/s"),
     "climb_speed": Spec("Klettergeschwindigkeit", "float", 5, 400, 5, "px/s"),
+    "jump_max_side": Spec("Sprungweite", "float", 50, 600, 10, "px",
+                          "Weiter entfernte Kanten springt sie nicht an"),
+    "shake_limit": Spec("Schütteln verträgt", "int", 3, 20, 1, "Wechsel",
+                        "So viele Richtungswechsel am Stück, dann wird ihr schlecht"),
     "satiety_hours": Spec("Sättigung leer nach", "float", 0.5, 72, 0.5, "h"),
     "affection_hours": Spec("Zuneigung leer nach", "float", 0.5, 72, 0.5, "h"),
     "feed_amount": Spec("Füttern gibt", "float", 1, 100, 1, "%"),
@@ -34,6 +40,7 @@ SPECS: dict[str, Spec] = {
     "p_jump": Spec("Sprung", "float", 0, 1, 0.05, "", "Wahrscheinlichkeit pro Entscheidung"),
     "p_climb": Spec("Klettern", "float", 0, 1, 0.05),
     "p_hang": Spec("An Unterkante hängen", "float", 0, 1, 0.05),
+    "p_groom": Spec("Putzen", "float", 0, 1, 0.05, "", "Anteil der Ruhepausen, in denen sie sich putzt"),
 }
 
 
@@ -42,9 +49,12 @@ class Config:
     sprite_scale: int = 3
     fur_color: str = "#e8913a"
     play_enabled: bool = True
+    shake_enabled: bool = True
     debug_lines: bool = False
     walk_speed: float = 60
     climb_speed: float = 80
+    jump_max_side: float = 320
+    shake_limit: int = 8
     satiety_hours: float = 8
     affection_hours: float = 4
     feed_amount: float = 40
@@ -52,6 +62,7 @@ class Config:
     p_jump: float = 0.15
     p_climb: float = 0.15
     p_hang: float = 0.10
+    p_groom: float = 0.35
     # Monitore, auf denen die Katze nicht laufen soll (KWin-Namen wie "DP-1").
     # Nicht in SPECS: die Auswahl entsteht erst zur Laufzeit aus den vorhandenen Monitoren.
     blocked_outputs: list[str] = field(default_factory=list)
