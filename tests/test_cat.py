@@ -2,7 +2,7 @@ import random
 
 import pytest
 
-from taskbar_cat.cat import HANG_DROP, JUMP_MAX_SIDE, SPRITE, Cat
+from taskbar_cat.cat import CHASE_MIN_DX, HANG_DROP, JUMP_MAX_SIDE, SPRITE, Cat
 from taskbar_cat.config import Config
 from taskbar_cat.needs import Mood, Needs
 from taskbar_cat.world import Output, Rect, Win, World
@@ -732,6 +732,27 @@ def test_play_chases_far_cursor():
     x = c.x
     play(c, w, 0.5, (1260, 1060))
     assert c.x > x + 50
+
+
+def test_play_does_not_jitter_under_a_high_cursor():
+    """Cursor fast senkrecht über ihr, aber zu hoch zum Anspringen: lauern statt zappeln."""
+    w, c = floor_cat()
+    cursor = (c.x + 10, c.y - 500)
+    xs = []
+    for _ in range(40):
+        c.tick(DT, w, False, cursor=cursor, wiggling=True)
+        xs.append(c.x)
+    assert c.state != "chase"
+    assert sum(1 for a, b, d in zip(xs, xs[1:], xs[2:]) if (b - a) * (d - b) < 0) <= 1
+
+
+def test_play_chase_never_overshoots_the_cursor():
+    """Bei einem Ruckler wäre der Schritt größer als der Abstand - und sie pendelt darum herum."""
+    w, c = floor_cat()
+    cursor = (c.x + CHASE_MIN_DX + 5, c.y - 500)
+    start = c.x
+    c.tick(0.3, w, False, cursor=cursor, wiggling=True)
+    assert c.state == "chase" and start < c.x <= cursor[0]
 
 
 def test_play_crouches_then_pounces():

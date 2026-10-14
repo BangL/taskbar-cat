@@ -23,6 +23,7 @@ HANG_MIN_GAP = HANG_DROP + 20
 HANG_MAX_GAP = 300
 PLAY_LINGER = 2.0    # so lange wird nach dem letzten Fuchteln weitergespielt
 CHASE_SPEED = 150
+CHASE_MIN_DX = 20    # darunter nicht nachlaufen, sonst zappelt sie um den Cursor herum
 POUNCE_RANGE = 200
 SWIPE_MAX_UP = 350
 DIVE_MIN_DROP = 40   # so weit unter den Pfoten lohnt der Sprung nach unten
@@ -506,13 +507,13 @@ class Cat:
             return
         if abs(dx) < 120 and 120 < above <= SWIPE_MAX_UP:
             self._pounce_at(cx, cy, "swipe")
-        elif (abs(dx) < POUNCE_RANGE if self._can_dive(cy)
-              else math.hypot(dx, cy - (self.y - self.sprite / 2)) < POUNCE_RANGE):
+        elif abs(dx) < CHASE_MIN_DX or (abs(dx) < POUNCE_RANGE if self._can_dive(cy)
+                                       else math.hypot(dx, cy - (self.y - self.sprite / 2)) < POUNCE_RANGE):
             # unter der Kante zählt nur der seitliche Abstand, die Tiefe macht die Schwerkraft
             self._set("crouch", self.rng.uniform(0.5, 1.0))
         else:
             self.state = "chase"
-            self.x += self.facing * CHASE_SPEED * dt
+            self.x += self.facing * min(CHASE_SPEED * dt, abs(dx))   # nie über den Cursor hinaus
             p = self.platform
             if not p.x1 <= self.x <= p.x2:
                 n = world.neighbor(p, self.facing)
