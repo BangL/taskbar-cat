@@ -543,6 +543,18 @@ def test_jump_target_vanishing_does_not_teleport():
     assert abs(c.x - 2400) < 400
 
 
+def test_walking_into_the_outer_edge_turns_around():
+    """Am rechten Rand des äußersten Monitors wurde sie in die Monitormitte zurückgesetzt."""
+    w = world()
+    c = make_cat()
+    p = w.platform_by_owner_at("floor:DP-4", 3000)
+    put_on(c, w, "floor:DP-4", p.x2 - 1)
+    c.facing = 1
+    c._set("walk", 999)
+    run(c, w, 0.5)
+    assert c.x > p.x2 - 100 and c.facing == -1
+
+
 def test_no_jumps_to_edges_near_top():
     w = world(win("top", 100, 100, 800, 400))
     c = make_cat()

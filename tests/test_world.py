@@ -119,6 +119,12 @@ def test_output_at():
     assert w.output_at(-5, 500) is None
 
 
+def test_output_at_outer_right_edge():
+    """Genau auf der letzten Spalte: sonst galt die Katze dort als außerhalb."""
+    w = World(two_outputs(), [])
+    assert w.output_at(3840, 500).name == "DP-4"
+
+
 def test_window_rect_and_bounds():
     w = World(two_outputs(), [win("a", 100, 300, 800, 500)])
     assert w.window_rect("a") == Rect(100, 300, 800, 500)

@@ -195,6 +195,9 @@ class World:
 
     def output_at(self, x: float, y: float) -> Output | None:
         hits = [o for o in self.outputs if o.geometry.x <= x < o.geometry.right]
+        if not hits:
+            # Genau auf der rechten Kante steht sie noch auf dem Monitor, nicht im Nichts
+            hits = [o for o in self.outputs if o.geometry.x <= x <= o.geometry.right]
         if len(hits) == 1:
             return hits[0]
         for o in hits:
