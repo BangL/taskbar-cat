@@ -10,8 +10,10 @@ Systempakete (Arch): `python-pyqt6`, `pyside6`/`qt6-declarative` (QtQml/QtQuick)
 
 Aus dem Clone, ohne Installation:
 
-    python3 -m taskbar_cat          # normal
-    python3 -m taskbar_cat --debug  # Plattformen, Wände und Decken als Linien einblenden
+    python3 -m taskbar_cat             # normal
+    python3 -m taskbar_cat --debug     # Plattformen, Wände und Decken als Linien einblenden
+    python3 -m taskbar_cat --help       # Optionen anzeigen
+    python3 -m taskbar_cat --version
     python3 -m taskbar_cat.bus --dump  # nur Fenster-Sensor testen
 
 Installiert (siehe unten) zusätzlich als `taskbar-cat`.
@@ -46,7 +48,7 @@ Als Python-Paket (eigenes venv oder `--user`):
 - Sprite-Cache: `$XDG_CACHE_HOME/taskbar-cat/` (Standard `~/.cache/...`)
 - KWin-Sensor: `taskbar_cat/kwin/taskbar-cat-sensor.js` (wird als Paketdatei mitgeliefert)
 - KWin-Script-Logs: `journalctl --user -f | grep -i kwin`
-- Icon neu erzeugen: `python3 -m taskbar_cat.sprites --icon ~/pfad/icon.png`
+- Icon neu erzeugen: `python3 -m taskbar_cat.sprites --icon ~/pfad/icon.png` (`--size`, `--mood`, `--atlas`; `--help` zeigt alles)
 
 ## Tests
 

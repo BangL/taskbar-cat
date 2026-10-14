@@ -319,21 +319,32 @@ def save_icon(path: Path, size: int = 256, mood: str = "normal") -> None:
 
 
 def _cli(argv: list[str]) -> int:
-    """python3 -m taskbar_cat.sprites --icon <datei> | --atlas <datei>"""
+    import argparse
     import os
     import sys
 
+    from . import __version__
+
+    p = argparse.ArgumentParser(
+        prog="python3 -m taskbar_cat.sprites",
+        description="Pixel-Art prozedural erzeugen: App-Icon oder komplettes Spritesheet.")
+    g = p.add_mutually_exclusive_group(required=True)
+    g.add_argument("--icon", metavar="DATEI", help="Katzenkopf als PNG schreiben (256x256)")
+    g.add_argument("--atlas", metavar="DATEI", help="komplettes Spritesheet als PNG schreiben")
+    p.add_argument("--mood", choices=MOODS, default="normal", help="Stimmung des Icons (Standard: normal)")
+    p.add_argument("--size", type=int, default=256, help="Kantenlänge des Icons in Pixel (Standard: 256)")
+    p.add_argument("--version", action="version", version=f"taskbar-cat {__version__}")
+    args = p.parse_args(argv[1:])
+
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")  # vor QGuiApplication setzen
     from PyQt6.QtGui import QGuiApplication  # QImage/QPainter brauchen eine App
 
-    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-    QGuiApplication(argv[:1])
-    if len(argv) == 3 and argv[1] == "--icon":
-        save_icon(Path(argv[2]))
-    elif len(argv) == 3 and argv[1] == "--atlas":
-        render_atlas().save(argv[2])
-    else:
-        print(_cli.__doc__, file=sys.stderr)
-        return 2
+    QGuiApplication.instance() or QGuiApplication(argv[:1])  # nur eine pro Prozess
+    if args.icon:
+        save_icon(Path(args.icon), args.size, args.mood)
+    elif not render_atlas().save(args.atlas):
+        print(f"taskbar-cat: Atlas nicht schreibbar: {args.atlas}", file=sys.stderr)
+        return 1
     return 0
 
 

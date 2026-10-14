@@ -121,7 +121,7 @@ Verhaltenszustände: `idle_sit`, `walk`, `approach`, `jump`, `fall`, `climb`, `h
 - `world.py`: Boden bei Panel unten/oben/fehlend, maximierte Fenster nicht begehbar, Verdeckung schneidet Kanten, Mini-Stücke verworfen, Vollbild sperrt Monitor, Erreichbarkeit.
 - `cat.py`: Verfallsraten, Füttern/Streicheln, Stimmungswechsel inkl. 2-h-Regel und Erholung, Einfrieren bei Sperre, Mitfahren mit Fenster, Fallen bei Kantenverlust, Wurf landet auf Plattform.
 - `storage.py`: Roundtrip, kaputte Datei.
-- Manuell: Overlay, Input-Durchreichung, KWin-Script, Tray. Debug-Flag `--debug` zeichnet Plattformen (gelb/magenta), Wände (cyan) und Decken (rot) als Linien ins Overlay.
+- Manuell: Overlay, Input-Durchreichung, KWin-Script, Tray. Argumente über `argparse` (`--help`, `--version`, `--debug`; unbekannte Optionen -> Exit 2), ebenso `taskbar_cat.bus` und `taskbar_cat.sprites`. Debug-Flag `--debug` zeichnet Plattformen (gelb/magenta), Wände (cyan) und Decken (rot) als Linien ins Overlay.
 
 ## Nicht im Umfang
 

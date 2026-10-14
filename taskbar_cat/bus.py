@@ -114,12 +114,12 @@ class CatBus(QObject):
             self.load_sensor()
 
 
-def _dump() -> None:
+def _dump(argv: list[str]) -> None:
     import signal
 
     from PyQt6.QtCore import QCoreApplication
 
-    app = QCoreApplication(sys.argv)
+    app = QCoreApplication(argv[:1])
     bus = CatBus()
     if not bus.register():
         sys.exit("taskbar-cat: Service belegt (läuft schon eine Instanz?)")
@@ -144,5 +144,24 @@ def _dump() -> None:
     app.exec()
 
 
-if __name__ == "__main__" and "--dump" in sys.argv:
-    _dump()
+def _main(argv: list[str]) -> int:
+    import argparse
+
+    from . import __version__
+
+    p = argparse.ArgumentParser(
+        prog="python3 -m taskbar_cat.bus",
+        description="Fenster-Sensor einzeln testen: lädt das KWin-Script und gibt "
+                    "Monitore, Arbeitsflächen und begehbare Kanten aus.")
+    p.add_argument("--dump", action="store_true", help="Weltmodell zweimal pro Sekunde ausgeben")
+    p.add_argument("--version", action="version", version=f"taskbar-cat {__version__}")
+    args = p.parse_args(argv[1:])
+    if not args.dump:
+        p.print_help()
+        return 2
+    _dump(argv)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(_main(sys.argv))

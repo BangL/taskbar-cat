@@ -1,4 +1,5 @@
-"""Start: python3 -m taskbar_cat [--debug]"""
+"""Start: python3 -m taskbar_cat [--debug] bzw. taskbar-cat"""
+import argparse
 import random
 import signal
 import sys
@@ -8,7 +9,7 @@ from PyQt6.QtCore import QTimer
 from PyQt6.QtQml import QQmlEngine
 from PyQt6.QtWidgets import QApplication
 
-from . import paths, sprites, storage
+from . import __version__, paths, sprites, storage
 from .guard import guarded
 from .bus import CatBus
 from .cat import SPRITE, Cat
@@ -32,9 +33,24 @@ def fallback_world(app: QApplication) -> World:
                                for s in app.screens()])
 
 
-def main() -> int:
-    debug = "--debug" in sys.argv
-    app = QApplication(sys.argv)
+def parse_args(argv: list[str]) -> argparse.Namespace:
+    p = argparse.ArgumentParser(
+        prog="taskbar-cat",
+        description="Pixel-Art-Tamagotchi-Katze, die auf dem Boden der Arbeitsfläche "
+                    "und auf Fensteroberkanten lebt (KDE Plasma 6 / Wayland).",
+        epilog="Zustand: $XDG_DATA_HOME/taskbar-cat/state.json. "
+               "Fenster-Sensor einzeln testen: python3 -m taskbar_cat.bus --dump")
+    p.add_argument("--debug", action="store_true",
+                   help="Plattformen (gelb/magenta), Wände (cyan) und Decken (rot) als Linien einblenden")
+    p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
+    return p.parse_args(argv[1:])
+
+
+def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv if argv is None else argv
+    args = parse_args(argv)
+    debug = args.debug
+    app = QApplication(argv[:1])
     app.setApplicationName("taskbar-cat")
     app.setQuitOnLastWindowClosed(False)
 
