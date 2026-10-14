@@ -237,3 +237,39 @@ def test_ufo_images(qapp, tmp_path):
     assert sprites.ensure_ufo(tmp_path) == (ufo, beam)
     sprites.ensure_atlas(tmp_path)
     assert ufo.exists() and beam.exists()   # Atlas-Aufräumen lässt das UFO stehen
+
+
+# --- Tigerung ---
+
+def dark_pixels(img, anim="sit"):
+    frame = frame_image(img, anim, "normal", 0)
+    dark = sprites.Palette().dark.rgb()
+    return sum(1 for y in range(FRAME) for x in range(FRAME)
+               if frame.pixelColor(x, y).alpha() > 0 and frame.pixelColor(x, y).rgb() == dark)
+
+
+def test_spread_picks_evenly():
+    pts = [1, 2, 3, 4]
+    assert sprites._spread(pts, 0) == []
+    assert sprites._spread(pts, -1) == []
+    assert sprites._spread(pts, 0.5) == [2, 4]
+    assert sprites._spread(pts, 1) == pts
+    assert sprites._spread(pts, 5) == pts
+
+
+def test_tabby_adds_and_removes_stripes(qapp, tmp_path):
+    counts = [dark_pixels(QImage(str(sprites.ensure_atlas(tmp_path, sprites.FUR_DEFAULT, t))))
+              for t in (0, 100, 200)]
+    assert counts[0] < counts[1] < counts[2]
+
+
+def test_tabby_zero_keeps_the_other_details(qapp, tmp_path):
+    """Ohne Streifen bleiben Beintrennung und Schwanzspitze stehen."""
+    assert dark_pixels(QImage(str(sprites.ensure_atlas(tmp_path, sprites.FUR_DEFAULT, 0)))) > 0
+
+
+def test_atlas_cached_per_tabby(qapp, tmp_path):
+    normal = sprites.ensure_atlas(tmp_path, sprites.FUR_DEFAULT, 100)
+    full = sprites.ensure_atlas(tmp_path, sprites.FUR_DEFAULT, 200)
+    assert normal != full and full.exists()
+    assert sprites.ensure_atlas(tmp_path, sprites.FUR_DEFAULT, 200) == full

@@ -8,7 +8,7 @@ from pathlib import Path
 from PyQt6.QtCore import QPointF, QRectF, Qt
 from PyQt6.QtGui import QColor, QImage, QLinearGradient, QPainter, QPen, QPolygonF
 
-ATLAS_VERSION = 9
+ATLAS_VERSION = 10
 UFO_VERSION = 1
 FRAME = 32
 ANIMS = {"sit": 2, "groom": 2, "vomit": 2, "walk": 4, "crawl": 4, "jump": 1, "fall": 1, "sleep": 2, "eat": 2, "purr": 2, "dragged": 2, "lie": 2, "climb": 4, "hang": 2,
@@ -16,6 +16,7 @@ ANIMS = {"sit": 2, "groom": 2, "vomit": 2, "walk": 4, "crawl": 4, "jump": 1, "fa
 MOODS = ("normal", "sad", "sick")
 
 FUR_DEFAULT = "#E8913A"
+TABBY_DEFAULT = 100       # Prozent: 0 einfarbig, 100 wie gezeichnet, 200 mit allen Zusatzstreifen
 EYE = QColor("#1A1A1A")
 EYE_PALE = QColor("#E2DCA8")   # auf dunklem Fell sieht man schwarze Augen nicht
 NOSE = QColor("#F28CA0")
@@ -38,6 +39,12 @@ def _hsv(c: QColor, dh: float = 0, fs: float = 1.0, fv: float = 1.0, h: float | 
 def _mix(a: QColor, b: QColor, t: float) -> QColor:
     return QColor(*(round(x + (y - x) * t) for x, y in
                     ((a.red(), b.red()), (a.green(), b.green()), (a.blue(), b.blue()))))
+
+
+def _spread(pts, part: float) -> list:
+    """Anteil einer Streifenliste gleichmäßig verteilt auswählen: 0 nichts, 1 alles."""
+    n = round(len(pts) * max(0.0, min(1.0, part)))
+    return [pts[int((i + 0.5) * len(pts) / n)] for i in range(n)] if n else []
 
 
 class Palette:
@@ -74,9 +81,11 @@ def frame_origin(anim: str, mood: str, frame: int) -> tuple[int, int]:
 class _Pen:
     """Kleine Zeichenhilfe ohne Antialiasing."""
 
-    def __init__(self, painter: QPainter, mood: str, fur: QColor | str = FUR_DEFAULT):
+    def __init__(self, painter: QPainter, mood: str, fur: QColor | str = FUR_DEFAULT,
+                 tabby: float = TABBY_DEFAULT):
         self.p = painter
         self.mood = mood
+        self.tabby = tabby
         self.palette = Palette(fur, mood)
         self.fur = self.palette.fur
         self.dark = self.palette.dark
@@ -142,8 +151,10 @@ class _Pen:
         self.rect(cx + 5, cy - 1, 2, 1, self.whisker)
         self.rect(cx + 5, cy + 1, 2, 1, self.whisker)
 
-    def stripes(self, pts):
-        for x, y in pts:
+    def stripes(self, pts, extra=()):
+        """pts sind die normalen Streifen, extra die zusätzlichen ab 100 % Tigerung.
+        Darunter wird aus pts ausgedünnt, bei 0 bleibt das Fell einfarbig."""
+        for x, y in _spread(pts, self.tabby / 100) + _spread(extra, self.tabby / 100 - 1):
             self.rect(x, y, 1, 2, self.dark)
 
     def heart(self, x, y):
@@ -167,7 +178,7 @@ def _sit(c: _Pen, f: int, eyes="open"):
     # lassen unten eine Lücke, durch die der Hintergrund scheint
     c.rect(16, 23, 5, 8)
     c.rect(18, 24, 1, 5, c.dark)
-    c.stripes([(11, 17), (13, 16)])
+    c.stripes([(11, 17), (13, 16)], [(10, 20), (15, 15)])
     c.head(18, 11, eyes)
 
 
@@ -179,7 +190,7 @@ def _groom(c: _Pen, f: int):
     c.ell(14, 21, 5, 7)
     c.rect(16, 23, 5, 8)
     c.rect(18, 24, 1, 5, c.dark)
-    c.stripes([(11, 17), (13, 16)])
+    c.stripes([(11, 17), (13, 16)], [(10, 20), (15, 15)])
     c.head(16, 15 + d, "closed")
     c.rect(18, 18 + d, 4, 2)            # angehobene Pfote
     c.rect(18, 20 + d, 4, 1, c.dark)    # grenzt sie vom Körper ab
@@ -194,7 +205,7 @@ def _vomit(c: _Pen, f: int):
     c.ell(14, 22, 5, 6)
     c.rect(16, 24, 5, 7)
     c.rect(18, 25, 1, 4, c.dark)
-    c.stripes([(11, 18), (13, 17)])
+    c.stripes([(11, 18), (13, 17)], [(10, 21), (15, 17)])
     c.head(17, 19 - d, "closed")
     if d:
         c.rect(22, 22, 2, 4, PUKE)          # Schwall aus dem Maul
@@ -209,7 +220,7 @@ def _walk(c: _Pen, f: int):
         c.rect(x + (shift if i % 2 else -shift), 24, 2, 7 - l)
     c.tail([(6, 20), (3, 15), (3 + shift, 10)])
     c.ell(14, 21, 10, 5)
-    c.stripes([(9, 17), (12, 16), (15, 16)])
+    c.stripes([(9, 17), (12, 16), (15, 16)], [(6, 19), (18, 17)])
     c.head(24, 14)
 
 
@@ -221,7 +232,7 @@ def _crawl(c: _Pen, f: int):
         c.rect(x + (shift if i % 2 else -shift), 28, 2, 3 - l)
     c.tail([(6, 26), (2, 24), (2 + shift, 21)])
     c.ell(14, 26, 10, 4)
-    c.stripes([(9, 23), (12, 22), (15, 22)])
+    c.stripes([(9, 23), (12, 22), (15, 22)], [(6, 24), (18, 23)])
     c.head(24, 24)
 
 
@@ -230,7 +241,7 @@ def _jump(c: _Pen, f: int):
     c.rect(1, 22, 7, 2)
     c.tail([(5, 19), (2, 14), (1, 10)])
     c.ell(15, 20, 10, 4)
-    c.stripes([(10, 17), (13, 16), (16, 16)])
+    c.stripes([(10, 17), (13, 16), (16, 16)], [(7, 18), (19, 17)])
     c.head(25, 13, "wide")
 
 
@@ -241,13 +252,13 @@ def _fall(c: _Pen, f: int):
     c.rect(21, 23, 2, 5)
     c.tail([(6, 18), (4, 12), (6, 8)])
     c.ell(15, 19, 9, 5)
-    c.stripes([(11, 15), (14, 15)])
+    c.stripes([(11, 15), (14, 15)], [(8, 17), (17, 15)])
     c.head(23, 12, "wide")
 
 
 def _sleep(c: _Pen, f: int):
     c.ell(15, 25, 11, 6)
-    c.stripes([(9, 20), (12, 19), (15, 19)])
+    c.stripes([(9, 20), (12, 19), (15, 19)], [(6, 22), (18, 20)])
     c.tail([(5, 29), (14, 30), (21, 30)])
     c.head(21, 24, "closed")
     if f == 0:
@@ -263,7 +274,7 @@ def _eat(c: _Pen, f: int):
     c.ell(11, 25, 7, 5)
     c.rect(15, 24, 2, 7)
     c.rect(18, 24, 2, 7)
-    c.stripes([(8, 21), (11, 20)])
+    c.stripes([(8, 21), (11, 20)], [(5, 23), (14, 21)])
     c.head(20, 19 + f, "closed")
 
 
@@ -280,7 +291,7 @@ def _dragged(c: _Pen, f: int):
     c.rect(19 + wig, 24, 2, 6)
     c.tail([(16, 24), (16 + wig * 2, 30)])
     c.ell(16, 18, 5, 8)
-    c.stripes([(14, 14), (17, 14)])
+    c.stripes([(14, 14), (17, 14)], [(14, 18), (17, 18)])
     c.head(16, 7, "wide")
 
 
@@ -288,7 +299,7 @@ def _lie(c: _Pen, f: int):
     c.tail([(5, 29), (1, 30 - f)])
     c.ell(14, 27, 10, 4)
     c.rect(24, 29, 6, 2)
-    c.stripes([(9, 24), (12, 24), (15, 24)])
+    c.stripes([(9, 24), (12, 24), (15, 24)], [(6, 25), (18, 25)])
     c.head(24, 25, "closed")
 
 
@@ -301,7 +312,7 @@ def _climb(c: _Pen, f: int):
     c.rect(19, 12 + front, 3, 2)
     c.rect(19, 16 - front, 3, 2)
     c.rect(18, 24 + hind, 4, 2)
-    c.stripes([(11, 15), (11, 19)])
+    c.stripes([(11, 15), (11, 19)], [(12, 12), (11, 22)])
     c.head(15, 8, "open")
 
 
@@ -315,7 +326,7 @@ def _hang(c: _Pen, f: int):
     c.ell(16, 19, 5, 7)
     c.rect(12 - f, 24, 2, 5 + f)
     c.rect(19 + f, 24, 2, 6 - f)
-    c.stripes([(14, 15), (17, 15)])
+    c.stripes([(14, 15), (17, 15)], [(14, 19), (17, 19)])
     c.head(16, 10, "wide")
 
 
@@ -326,7 +337,7 @@ def _crouch(c: _Pen, f: int):
     c.ell(15, 27.5, 10, 3.5)
     c.rect(21, 28, 6, 3)
     c.rect(6 + f, 28, 3, 3)
-    c.stripes([(10, 23), (13, 24)])
+    c.stripes([(10, 23), (13, 24)], [(6, 24), (18, 26)])
     c.head(24, 24, "wide")
 
 
@@ -339,7 +350,7 @@ def _swipe(c: _Pen, f: int):
     c.rect(19, 1 + 2 * f, 2, 11)
     c.rect(20, 0 + 2 * f, 3, 2)
     c.rect(10, 12, 2, 6)
-    c.stripes([(12, 16), (12, 20)])
+    c.stripes([(12, 16), (12, 20)], [(13, 13), (12, 23)])
     c.head(15, 10, "wide")
 
 
@@ -392,7 +403,7 @@ def _outline(img: QImage, x0: int, y0: int, color: QColor) -> None:
             img.setPixelColor(x0 + x, y0 + y, color)
 
 
-def render_atlas(fur: QColor | str = FUR_DEFAULT) -> QImage:
+def render_atlas(fur: QColor | str = FUR_DEFAULT, tabby: float = TABBY_DEFAULT) -> QImage:
     img = QImage(FRAME * max(ANIMS.values()), FRAME * len(ANIMS) * len(MOODS), QImage.Format.Format_ARGB32)
     img.fill(Qt.GlobalColor.transparent)
     for anim, n in ANIMS.items():
@@ -402,7 +413,7 @@ def render_atlas(fur: QColor | str = FUR_DEFAULT) -> QImage:
                 p = QPainter(img)
                 p.translate(x0, y0)
                 p.setClipRect(0, 0, FRAME, FRAME)
-                pen = _Pen(p, mood, fur)
+                pen = _Pen(p, mood, fur, tabby)
                 POSES[anim](pen, f)
                 p.end()
                 _fill_holes(img, x0, y0)     # Lücken im Fell
@@ -411,18 +422,19 @@ def render_atlas(fur: QColor | str = FUR_DEFAULT) -> QImage:
     return img
 
 
-def ensure_atlas(cache_dir: Path, fur: QColor | str = FUR_DEFAULT) -> Path:
-    """Atlas je Fellfarbe zwischenspeichern (Name enthält die Farbe)."""
+def ensure_atlas(cache_dir: Path, fur: QColor | str = FUR_DEFAULT,
+                 tabby: float = TABBY_DEFAULT) -> Path:
+    """Atlas je Fellfarbe und Tigerung zwischenspeichern (Name enthält beides)."""
     tint = QColor(fur)
     if not tint.isValid():
         tint = QColor(FUR_DEFAULT)
-    path = cache_dir / f"atlas-v{ATLAS_VERSION}-{tint.name()[1:]}.png"
+    path = cache_dir / f"atlas-v{ATLAS_VERSION}-{tint.name()[1:]}-{round(tabby)}.png"
     for old in cache_dir.glob("atlas-v*.png"):
         if not old.name.startswith(f"atlas-v{ATLAS_VERSION}-"):
             old.unlink(missing_ok=True)       # Spritesheets älterer Versionen
     if not path.exists():
         cache_dir.mkdir(parents=True, exist_ok=True)
-        render_atlas(tint).save(str(path))
+        render_atlas(tint, tabby).save(str(path))
     return path
 
 
@@ -511,6 +523,8 @@ def _cli(argv: list[str]) -> int:
     p.add_argument("--size", type=int, default=256, help="Kantenlänge des Icons in Pixel (Standard: 256)")
     p.add_argument("--color", default=FUR_DEFAULT, metavar="#RRGGBB",
                    help=f"Fellfarbe (Standard: {FUR_DEFAULT})")
+    p.add_argument("--tabby", type=int, default=TABBY_DEFAULT, metavar="PROZENT",
+                   help=f"Tigerung 0-200 (Standard: {TABBY_DEFAULT})")
     p.add_argument("--version", action="version", version=f"taskbar-cat {__version__}")
     args = p.parse_args(argv[1:])
 
@@ -523,7 +537,7 @@ def _cli(argv: list[str]) -> int:
         return 2
     if args.icon:
         save_icon(Path(args.icon), args.size, args.mood, args.color)
-    elif not render_atlas(args.color).save(args.atlas):
+    elif not render_atlas(args.color, args.tabby).save(args.atlas):
         print(f"taskbar-cat: Atlas nicht schreibbar: {args.atlas}", file=sys.stderr)
         return 1
     return 0

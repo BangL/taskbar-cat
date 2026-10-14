@@ -23,6 +23,8 @@ SPECS: dict[str, Spec] = {
     "sprite_scale": Spec("Größe", "int", 1, 6, 1, "x", "Kantenlänge = 32 Pixel x Faktor"),
     "fur_color": Spec("Fellfarbe", "color", hint="Streifen, Kontur und die kranke Katze "
                                                  "werden daraus abgeleitet"),
+    "tabby": Spec("Tigerung", "int", 0, 200, 10, "%",
+                  "0 = einfarbig, 100 = normal, darüber zusätzliche Streifen"),
     "play_enabled": Spec("Mauszeiger fangen", "bool"),
     "shake_enabled": Spec("Schütteln macht übel", "bool",
                           hint="Wird sie beim Ziehen zu wild geschüttelt, kotzt sie"),
@@ -48,6 +50,7 @@ SPECS: dict[str, Spec] = {
 class Config:
     sprite_scale: int = 3
     fur_color: str = "#e8913a"
+    tabby: int = 100
     play_enabled: bool = True
     shake_enabled: bool = True
     debug_lines: bool = False

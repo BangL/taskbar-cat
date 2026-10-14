@@ -87,7 +87,7 @@ def main(argv: list[str] | None = None) -> int:
     bus.load_sensor()
 
     engine = QQmlEngine()
-    overlays = OverlayManager(engine, sprites.ensure_atlas(paths.cache_dir(), cfg.fur_color),
+    overlays = OverlayManager(engine, sprites.ensure_atlas(paths.cache_dir(), cfg.fur_color, cfg.tabby),
                               debug or cfg.debug_lines, sprites.ensure_ufo(paths.cache_dir()))
     tray = CatTray(cat, cfg.fur_color)
 
@@ -111,9 +111,10 @@ def main(argv: list[str] | None = None) -> int:
     def config_changed(name: str) -> None:
         if name == "debug_lines":
             overlays.set_debug(debug or cfg.debug_lines)
-        elif name == "fur_color":
-            overlays.set_atlas(sprites.ensure_atlas(paths.cache_dir(), cfg.fur_color))
-            tray.set_color(cfg.fur_color)
+        elif name in ("fur_color", "tabby"):
+            overlays.set_atlas(sprites.ensure_atlas(paths.cache_dir(), cfg.fur_color, cfg.tabby))
+            if name == "fur_color":
+                tray.set_color(cfg.fur_color)
         elif name == "blocked_outputs":
             state["world"] = fallback_world(app, cfg.blocked_outputs)
             bus.refresh()  # echtes Weltmodell kommt mit dem nächsten Sensor-Update
