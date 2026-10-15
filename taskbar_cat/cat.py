@@ -163,7 +163,6 @@ class Cat:
         self._push_dir = 0      # Napf zu dieser Kante hin herunterschubsen (0 = nicht)
         self._nudges_left = 0
         self._post: tuple[str, int] | None = None   # (großer Kratzbaum, Pfeiler), an dem sie kratzt
-        self._hidden = False      # hinter den Fenstern, weil sie in einem Baum dahinter ist (oder war)
         self._toy: tuple[str, int] | None = None    # (großer Kratzbaum, Bällchen), nach dem sie schlägt
         self._swats_left = 0
         self._fly: int | None = None   # Fliege, die sie jagt (Furniture.fly_ids)
@@ -419,26 +418,28 @@ class Cat:
         return Rect(self.x - self.sprite / 2, self.y - self.sprite, self.sprite, self.sprite)
 
     def hidden_behind(self, world: World) -> bool:
-        """Liegt sie gerade hinter den Fenstern? Auf einem Kratzbaum, der dahinter steht, ja -
-        sie ist ja im Baum. Verlässt sie ihn dort, bleibt sie verdeckt, bis sie am Fenster
-        vorbeigelaufen ist; steht sie oben darauf, ist sie davor. In der Hand oder im
-        Traktorstrahl ist sie immer zu sehen."""
+        """Liegt sie gerade hinter den Fenstern? Nur solange sie in einem Kratzbaum ist, der
+        dahinter steht - sie ist ja im Baum. Geht sie herunter, ist sie sofort wieder zu
+        sehen. In der Hand oder im Traktorstrahl ebenso."""
         if self.state in ("dragged", "beamed", "hidden"):
-            self._hidden = False
             return False
         owner = self.platform.owner if self.platform is not None else ""
         if self.state == "climb" and self._wall is not None:
             owner = self._wall.owner
-        if self.furniture.hidden_owner(owner):
-            self._hidden = True
-        elif on_tree(owner):          # auf einem Baum, der davor steht: wieder zu sehen
-            self._hidden = False
-        elif self._hidden:
-            on_window = self.platform is not None and not self.platform.is_floor
-            rect = self.sprite_rect()
-            self._hidden = not on_window and any(overlap(rect, r) is not None
-                                                 for r in window_rects(world))
-        return self._hidden
+        return self.furniture.hidden_owner(owner)
+
+    def _dark(self, world: World, owner: str, rect: Rect) -> bool:
+        """Verschwindet dieser Platz hinter den Fenstern? Solche Stellen am Kratzbaum meidet
+        sie, damit sie nicht aus dem Bild läuft."""
+        return bool(self.furniture.hidden_owner(owner)) and any(
+            overlap(rect, r) is not None for r in window_rects(world))
+
+    def _dark_platform(self, world: World, p: Platform) -> bool:
+        return self._dark(world, p.owner, Rect(p.x1, p.y - self.sprite, p.x2 - p.x1, self.sprite))
+
+    def _dark_wall(self, world: World, w: Wall) -> bool:
+        return self._dark(world, w.owner,
+                          Rect(w.x - self.sprite / 2, w.y1, self.sprite, w.y2 - w.y1))
 
     def _ufo_arrives(self, dt: float) -> bool:
         """Zufall pro Tick; nur bei ruhiger Katze, wenn keins unterwegs ist und nicht kurz
@@ -894,7 +895,8 @@ class Cat:
         p_climb = p_jump + self.cfg.p_climb
         p_hang = p_climb + self.cfg.p_hang
         reach = self._jump_targets(world, p) if r < p_jump else []
-        walls = world.walls_near(p, self.x, CLIMB_OFFSET) if p_jump <= r < p_climb else []
+        walls = ([w for w in world.walls_near(p, self.x, CLIMB_OFFSET)
+                  if not self._dark_wall(world, w)] if p_jump <= r < p_climb else [])
         ceils = world.ceilings_near(p, self.x, HANG_MIN_GAP, HANG_MAX_GAP) if p_climb <= r < p_hang else []
         if reach:
             self._jump_to(self.rng.choice(reach))
@@ -915,7 +917,8 @@ class Cat:
         # Scheitel liegt 60 px über dem Ziel; Sprite muss darunter noch auf den Schirm passen
         top = world.bounds().y + self.sprite + 60
         reach = world.reachable(p, self.x, max_up=math.inf, max_side=self.cfg.jump_max_side)
-        return [q for q in reach if q.y >= top and not _same_level(p, q)]
+        return [q for q in reach if q.y >= top and not _same_level(p, q)
+                and not self._dark_platform(world, q)]
 
     def _jump_to(self, q: Platform, aim: float | None = None) -> None:
         """aim: möglichst dort landen (sonst zufällig in Reichweite)."""
@@ -972,7 +975,8 @@ class Cat:
         ups = [q for q in self._jump_targets(world, self.platform)
                if q.owner.startswith(BOARD_ID) and q != self.platform]
         walls = [] if on else [w for w in world.walls_near(self.platform, self.x, CLIMB_OFFSET)
-                               if w.owner.startswith(f"{BOARD_ID}{kind}:")]
+                               if w.owner.startswith(f"{BOARD_ID}{kind}:")
+                               and not self._dark_wall(world, w)]
         r = self.rng.random()
         if walls and r < 0.4:
             self.start_climb(world, self.rng.choice(walls))
@@ -1078,12 +1082,13 @@ class Cat:
             self._set("scratch", self.rng.uniform(2.5, 5))
             self.furniture.scratch("tree", 0, 1 / self.cfg.sisal_scratches)
             return
-        walls = [w for w in world.walls_near(self.platform, self.x, CLIMB_OFFSET) if w.owner == TREE_ID]
+        walls = [w for w in world.walls_near(self.platform, self.x, CLIMB_OFFSET)
+                 if w.owner == TREE_ID and not self._dark_wall(world, w)]
         if walls and self.rng.random() < 0.5:
             self.start_climb(world, self.rng.choice(walls))
             return
         deck = next((p for p in world.platforms if p.owner == TREE_ID), None)
-        if deck is not None:
+        if deck is not None and not self._dark_platform(world, deck):
             self._jump_to(deck, bx)   # hinauf auf die Liegefläche
         else:
             self._set("scratch", self.rng.uniform(2.5, 5))
@@ -1267,7 +1272,11 @@ class Cat:
         s = self.sprite / 32
         x = pos[0] + (b.x1 + (b.x2 - b.x1 - DOOR_W) // 2 + DOOR_W / 2 - lay.w / 2) * s
         q = world.platform_by_owner_at(f"{BOARD_ID}{kind}:{BASE_KEY}", x)
-        return (x, q) if q is not None and self._allowed(world, q) else None
+        if q is None or not self._allowed(world, q):
+            return None
+        if self._dark(world, q.owner, Rect(x - s * 16, q.y - self.sprite, s * 32, self.sprite)):
+            return None      # eine Höhle hinter einem Fenster meidet sie
+        return (x, q)
 
     def _seek_cave(self, kind: str, plan: str, world: World) -> bool:
         self._cave_plan = plan

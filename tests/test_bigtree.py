@@ -8,7 +8,7 @@ from taskbar_cat.bigtree import BOARD_ID, KIND, Tree, layout
 from taskbar_cat import cat as cat_mod
 from taskbar_cat.cat import SPRITE, Cat
 from taskbar_cat.config import Config
-from taskbar_cat.furniture import Furniture
+from taskbar_cat.furniture import TREE_ID, Furniture
 from taskbar_cat.needs import Needs
 from PyQt6.QtCore import Qt
 
@@ -815,7 +815,7 @@ def test_window_covers_the_tree_and_her_in_it():
     assert not c.hidden_behind(ww)                  # Baum wieder davor, sie auch
 
 
-def test_she_stays_hidden_until_she_is_past_the_window():
+def test_down_from_the_tree_she_is_visible_again_at_once():
     from taskbar_cat.furniture import window_rects
     w, f = hidden_tree_world()
     ww = f.world_with(w, SPRITE)
@@ -825,11 +825,61 @@ def test_she_stays_hidden_until_she_is_past_the_window():
     assert c.hidden_behind(ww)
     floor = next(p for p in ww.platforms if p.is_floor)      # sie springt herunter
     c._land(ww, floor)
-    win = window_rects(w)[0]
-    c.x = win.x + 50
-    assert c.hidden_behind(ww)                   # noch hinter dem Fenster
-    c.x = win.x - SPRITE                         # am Rand vorbei
+    c.x = window_rects(w)[0].x + 50              # noch vor dem Fenster, aber nicht im Baum
     assert not c.hidden_behind(ww)
+
+
+def covered_piece(p, w):
+    """Verschwindet diese Fläche hinter einem Fenster (Sprite-Höhe darüber)?"""
+    from taskbar_cat.furniture import window_rects
+    from taskbar_cat.world import Rect, overlap
+    return any(overlap(Rect(p.x1, p.y - SPRITE, p.x2 - p.x1, SPRITE), r) for r in window_rects(w))
+
+
+def test_she_avoids_the_boards_behind_a_window():
+    w, f = hidden_tree_world()
+    ww = f.world_with(w, SPRITE)
+    c = cat_near(f, w)
+    floor = next(p for p in ww.platforms if p.is_floor)
+    c._land(ww, floor)
+    c.x = f.usable(KIND, w)[0]
+    assert [p for p in ww.platforms if p.owner.startswith(BOARD_ID) and covered_piece(p, w)]
+    assert not [q for q in c._jump_targets(ww, floor) if covered_piece(q, w)]
+    assert [q for q in c._jump_targets(ww, floor) if q.owner.startswith(BOARD_ID)]  # oben drüber schon
+    f.set_behind(KIND, False)
+    assert [q for q in c._jump_targets(ww, floor) if covered_piece(q, w)]   # davor nutzt sie sie
+
+
+def test_she_avoids_a_cave_behind_a_window():
+    from taskbar_cat.world import Rect, Win
+    w, f = cave_tree()
+    c = cat_near(f, w)
+    pos = f.usable(KIND, w)
+    assert c._cave_door(f.world_with(w, SPRITE), KIND) is not None
+    f.set_behind(KIND, True)
+    ww = f.world_with(world(Win("a", Rect(pos[0] - 300, pos[1] - 300, 600, 400), 5, False, False)), SPRITE)
+    assert c._cave_door(ww, KIND) is None
+
+
+def test_she_avoids_the_small_tree_behind_a_window():
+    w, f = hidden_tree_world("tree")
+    ww = f.world_with(w, SPRITE)
+    c = cat_near(f, w, x=f.bodies["tree"].x)
+    c.cfg.set("p_toy", 0)
+    c.cfg.set("p_scratch", 0)
+    c._land(ww, next(p for p in ww.platforms if p.is_floor))
+    deck = next(p for p in ww.platforms if p.owner == TREE_ID)
+    assert covered_piece(deck, w)
+    for _ in range(20):
+        c._use_tree(ww, c.x)
+        assert c.state == "scratch"          # weder hinauf noch am Pfeiler hoch
+    f.set_behind("tree", False)
+    states = set()
+    for _ in range(20):
+        c._land(ww, next(p for p in ww.platforms if p.is_floor))
+        c._use_tree(ww, c.x)
+        states.add(c.state)
+    assert states - {"scratch"}              # davor geht sie wieder hinauf
 
 
 def test_on_top_of_the_window_she_is_in_front_again():
