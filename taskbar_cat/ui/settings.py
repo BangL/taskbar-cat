@@ -11,10 +11,13 @@ from ..guard import guarded
 GROUPS = (
     ("Darstellung", ("sprite_scale", "fur_color", "tabby", "debug_lines")),
     ("Verhalten", ("play_enabled", "shake_enabled", "walk_speed", "climb_speed", "jump_max_side",
-                   "shake_limit", "p_jump", "p_climb", "p_hang", "p_groom", "p_yarn", "p_tree",
-                   "p_bigtree")),
+                   "shake_limit", "p_jump", "p_climb", "p_hang", "p_groom", "p_yarn")),
+    ("Kratzbaum", ("p_tree", "p_scratch", "p_cave", "p_toy", "sisal_scratches")),
     ("Bedürfnisse", ("satiety_hours", "affection_hours", "feed_amount", "pet_amount")),
 )
+
+
+COLUMNS = 3   # Gruppen nebeneinander: der Dialog wird lieber breit als hoch
 
 
 def _decimals(step: float) -> int:
@@ -116,8 +119,8 @@ class SettingsDialog(QDialog):
         layout = QVBoxLayout(self)
         columns = QHBoxLayout()
         layout.addLayout(columns)
-        self._columns = [QVBoxLayout(), QVBoxLayout()]
-        self._heights = [0, 0]
+        self._columns = [QVBoxLayout() for _ in range(COLUMNS)]
+        self._heights = [0] * COLUMNS
         for col in self._columns:
             columns.addLayout(col)
         for title, names in GROUPS:

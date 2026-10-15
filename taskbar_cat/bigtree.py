@@ -11,6 +11,7 @@ In der Welt wird jede Fläche zu einer schmalen Kante (wie ein Panel: nur oben b
 und jeder Pfeiler zu einer Wand, an der die Katze hochklettert.
 """
 import functools
+import math
 import random
 from dataclasses import dataclass, field
 
@@ -39,7 +40,6 @@ LOAD_TIME = 0.4            # so lange (s) sinkt sie ein
 CAT_SINK = 6               # so tief liegt die Katze dann im Stoff (Matte davor)
 DOOR_W = 12                # Tür der Höhle: ihr Kopf passt hindurch
 CAVE_MIN_W = 28            # schmaler wird keine Höhle (geduckt ist sie so lang)
-WEAR_FULL_S = 600.0        # so lange (s) Kratzen, bis ein Pfeiler ganz zerfranst ist
 WEAR_LEVELS = 3            # sichtbare Stufen der Kratzspuren
 TOY_REACH = (4, 24)        # Bällchen so weit (Sprite-px) über ihrer Fläche: mit der Pfote erreichbar
 
@@ -253,14 +253,15 @@ class Tree:
             t.wear = [max(0.0, min(1.0, float(v))) if isinstance(v, (int, float)) else 0.0 for v in wear]
         return t
 
-    def scratch(self, post: int, dt: float) -> None:
-        """Am Pfeiler kratzen: der Sisal franst langsam aus."""
+    def scratch(self, post: int, amount: float) -> None:
+        """Einmal am Pfeiler gekratzt (amount = 1 / Kratzer bis ganz zerfranst)."""
         self.wear += [0.0] * (post + 1 - len(self.wear))
-        self.wear[post] = min(1.0, self.wear[post] + dt / WEAR_FULL_S)
+        self.wear[post] = min(1.0, self.wear[post] + amount)
 
     def wear_levels(self) -> str:
-        """Sichtbare Stufe je Pfeiler als Ziffern ("" = nirgends zerkratzt); fürs Bild."""
-        levels = "".join(str(min(WEAR_LEVELS, int(v * (WEAR_LEVELS + 1)))) for v in self.wear)
+        """Sichtbare Stufe je Pfeiler als Ziffern ("" = nirgends zerkratzt); fürs Bild.
+        Schon der erste Kratzer ist zu sehen, ganz zerfranst ist die höchste Stufe."""
+        levels = "".join(str(min(WEAR_LEVELS, math.ceil(round(v * WEAR_LEVELS, 6)))) for v in self.wear)
         return levels.rstrip("0")
 
     def variant(self, name: str) -> dict:

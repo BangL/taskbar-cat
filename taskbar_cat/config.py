@@ -45,11 +45,18 @@ SPECS: dict[str, Spec] = {
     "p_groom": Spec("Putzen", "float", 0, 1, 0.05, "", "Anteil der Ruhepausen, in denen sie sich putzt"),
     "p_yarn": Spec("Mit Wolle spielen", "float", 0, 1, 0.05, "",
                    "Wahrscheinlichkeit pro Entscheidung, wenn ein Wollknäuel aufgestellt ist"),
-    "p_tree": Spec("Kratzbaum", "float", 0, 1, 0.05, "",
-                   "Wahrscheinlichkeit pro Entscheidung, zum Kratzbaum zu gehen (kratzen oder hinauf)"),
-    "p_bigtree": Spec("Großer Kratzbaum", "float", 0, 1, 0.05, "",
-                      "Wahrscheinlichkeit pro Entscheidung in seiner Nähe: hinaufspringen, "
-                      "am Pfeiler hochklettern oder kratzen"),
+    "p_tree": Spec("Hingehen", "float", 0, 1, 0.05, "",
+                   "Wahrscheinlichkeit pro Entscheidung, einen Kratzbaum zu nutzen (der kleine irgendwo "
+                   "auf dem Boden, ein großer in ihrer Nähe); was sie dort tut, legen die Werte darunter fest"),
+    "p_scratch": Spec("Kratzen", "float", 0, 1, 0.05, "",
+                      "Anteil der Besuche, bei denen sie kratzt; sonst springt oder klettert sie hinauf"),
+    "p_cave": Spec("Höhle", "float", 0, 1, 0.05, "",
+                   "Anteil der Besuche am großen Kratzbaum, bei denen sie in die Höhle geht"),
+    "p_toy": Spec("Bällchen", "float", 0, 1, 0.05, "",
+                  "Auf einer Fläche mit erreichbarem Bällchen: Anteil, in dem sie danach schlägt"),
+    "sisal_scratches": Spec("Sisal zerfranst nach", "int", 1, 50, 1, "mal Kratzen",
+                            "So oft an einem Pfeiler des großen Kratzbaums gekratzt, ist er ganz zerfranst "
+                            "(Rechtsklick auf den Baum -> \"Neuen Sisal\")"),
 }
 
 
@@ -74,8 +81,11 @@ class Config:
     p_hang: float = 0.10
     p_groom: float = 0.35
     p_yarn: float = 0.2
-    p_tree: float = 0.15
-    p_bigtree: float = 0.3
+    p_tree: float = 0.25
+    p_scratch: float = 0.5
+    p_cave: float = 0.3
+    p_toy: float = 0.35
+    sisal_scratches: int = 5
     # Monitore, auf denen die Katze nicht laufen soll (KWin-Namen wie "DP-1").
     # Nicht in SPECS: die Auswahl entsteht erst zur Laufzeit aus den vorhandenen Monitoren.
     blocked_outputs: list[str] = field(default_factory=list)

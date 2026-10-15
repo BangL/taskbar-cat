@@ -261,7 +261,7 @@ def cat_near(f, w, x=800, seed=0, **needs):
     c.spawn(w)
     c.x = x
     cfg = Config()
-    cfg.set("p_bigtree", 1)
+    cfg.set("p_tree", 1)
     c.cfg = cfg
     return c
 
@@ -452,7 +452,7 @@ def test_no_bigtree_no_extra_dice():
     """Ohne aufgestellten großen Kratzbaum bleibt das übrige Verhalten gleich."""
     w = world()
     a, b = cat_near(Furniture(), w), cat_near(Furniture(), w)
-    b.cfg.set("p_bigtree", 0)
+    b.cfg.set("p_tree", 0)
     for _ in range(int(60 / DT)):
         a.tick(DT, w, False)
         b.tick(DT, w, False)
@@ -659,11 +659,20 @@ def test_scratching_frays_the_post():
     assert c._seek(KIND, ww)
     assert run_until(c, f, w, ("scratch",))
     post = c._post[1]
-    run_until(c, f, w, ("idle_sit", "walk", "groom"), 10)
     t = f.trees[KIND]
-    assert t.wear[post] > 0 and t.wear_levels() == ""         # erst nach langem Kratzen sichtbar
-    t.wear[post] = 0.6
-    assert t.wear_levels() == "0" * post + "2"
+    assert t.wear[post] == pytest.approx(1 / 5)                 # Vorgabe: nach 5 Mal ganz zerfranst
+    assert t.wear_levels() == "0" * post + "1"                  # schon das erste Mal sichtbar
+    levels = []
+    for _ in range(5):
+        t.scratch(post, 1 / 5)
+        levels.append(t.wear_levels()[-1])
+    assert levels == ["2", "2", "3", "3", "3"] and t.wear[post] == 1.0
+    c.cfg.set("sisal_scratches", 2)
+    t.wear = []
+    c._set("idle_sit", 1)
+    assert c._seek(KIND, f.world_with(w, SPRITE))
+    assert run_until(c, f, w, ("scratch",))
+    assert t.wear[c._post[1]] == pytest.approx(0.5)
     back = Tree.from_dict(json.loads(json.dumps(t.to_dict())))
     assert back.wear_levels() == t.wear_levels() and "wear" not in t.variant("x")
     assert "wear" not in Tree().to_dict()
@@ -715,3 +724,22 @@ def test_overlay_draws_swinging_toys(overlay):
     om.render(c, f.world_with(w, c.sprite), 0, f)
     assert ov.window.property("toyAngles")[0] > 0
     assert "wear=3" in ov.window.property("bigtrees")[0]["src"]
+
+
+@pytest.mark.parametrize("name, state", [("p_scratch", "scratch"), ("p_cave", "cave_in"), ("p_toy", "swat")])
+def test_each_tree_activity_can_be_switched_off(name, state):
+    """Auf 0 kommt die Tätigkeit nicht mehr vor, auf 1 schon."""
+    w, f = toy_tree() if name == "p_toy" else cave_tree()
+    for p, expected in ((0.0, False), (1.0, True)):
+        seen = False
+        for seed in range(4):
+            c = cat_near(f, w, seed=seed)
+            c.cfg.set(name, p)
+            if name == "p_toy":      # gleich auf die Fläche unter dem Bällchen
+                ww = f.world_with(w, SPRITE)
+                key = next(k for _, k in bigtree.reachable_toys(f.trees[KIND].layout()) if k != bigtree.BASE_KEY)
+                c._land(ww, next(q for q in ww.platforms if q.owner == f"{BOARD_ID}{KIND}:{key}"))
+            seen |= run_until(c, f, w, (state,), 60)
+            if seen:
+                break
+        assert seen == expected, (name, p)

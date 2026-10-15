@@ -544,11 +544,20 @@ def tree_run(c, f, w, seconds, until=None):
 
 
 def test_cat_scratches_or_climbs_tree():
-    w = world()
-    f = tree_at(w, 1300)
-    c = cat_with(w, f)
-    c.cfg = tree_cfg(1)
     seen = set()
+    for seed in range(6):     # je Besuch gewürfelt: notfalls ein paar Katzen mehr
+        if seen == {"scratch", "deck"}:
+            break
+        w = world()
+        f = tree_at(w, 1300)
+        c = cat_with(w, f)
+        c.rng = random.Random(seed)
+        c.cfg = tree_cfg(1)
+        scratches_or_climbs(c, f, w, seen)
+    assert seen == {"scratch", "deck"}
+
+
+def scratches_or_climbs(c, f, w, seen):
     for _ in range(int(120 / DT)):
         c.tick(DT, f.world_with(w, SPRITE), False)
         if c.state == "scratch":
@@ -557,7 +566,6 @@ def test_cat_scratches_or_climbs_tree():
             assert c.facing == (1 if c.x < 1300 else -1)
         if c.platform is not None and c.platform.owner == "furniture:tree":
             seen.add("deck")
-    assert seen == {"scratch", "deck"}
 
 
 def test_cat_rides_tree_and_falls_when_stored():

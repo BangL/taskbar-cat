@@ -55,7 +55,6 @@ CAVE_OUT_S = 0.5
 CAVE_STAY = (8.0, 25.0)  # so lange schaut sie heraus
 CAVE_LOOK_S = 1.5        # im Schnitt so oft schaut sie in die andere Richtung
 CAVE_SPOOK = 150         # Maus so nah an der Tür: wegducken oder herausspringen
-P_CAVE = 0.3             # Anteil der Baumbesuche, die in die Höhle führen
 P_CAVE_SLEEP = 0.5       # müde und Höhle in der Nähe: lieber dort schlafen als im Bett
 P_CAVE_BUTT = 0.08       # selten verkehrt herum drin: der Hintern schaut heraus
 # Napf nah an einer Kante (Fenster, Kratzbaum): ab und an schubst sie ihn herunter
@@ -64,7 +63,6 @@ BOWL_EDGE = 1.0          # Sprites: so nah steht der Napf an der Kante
 BOWL_NUDGES = (1, 3)     # so oft stupst sie, der letzte Stups wirft ihn hinunter
 BOWL_NUDGE_S = 0.6
 # Bällchen am großen Kratzbaum: von der Fläche darunter mit erhobener Pfote anschlagen
-P_TOY = 0.35             # Anteil der Entscheidungen auf einer Fläche mit erreichbarem Bällchen
 TOY_PAW = 6              # Frame-Pixel von ihrer Mitte bis unter das Bällchen
 TOY_SWATS = (2, 4)
 SWAT_S = 0.5
@@ -522,8 +520,6 @@ class Cat:
         if self.state == "to_toy":
             self._to_toy(dt, world)
             return
-        if self.state == "scratch" and self._post is not None and self._post[0] in self.furniture.trees:
-            self.furniture.trees[self._post[0]].scratch(self._post[1], dt)   # Sisal franst aus
         if self.state == "sleep":
             bed = self.furniture.usable("bed", world)
             if self._in_bed and (bed is None or abs(bed[0] - self.x) > 1 or abs(bed[1] - self.y) > 1):
@@ -809,7 +805,7 @@ class Cat:
         near = self._bigtree_near(world)
         if near is not None:
             on = self.platform.owner.startswith(BOARD_ID)
-            if self.rng.random() < (BIGTREE_HOP if on else self.cfg.p_bigtree) and self._use_bigtree(world, near, on):
+            if self.rng.random() < (BIGTREE_HOP if on else self.cfg.p_tree) and self._use_bigtree(world, near, on):
                 return
         p = self.platform
         r = self.rng.random()
@@ -881,15 +877,17 @@ class Cat:
     def _use_bigtree(self, world: World, kind: str, on: bool) -> bool:
         """Auf eine andere Fläche springen, am Pfeiler hochklettern, daran kratzen oder in
         die Höhle gehen."""
-        if (not on and self._cave_door(world, kind) is not None and self.rng.random() < P_CAVE
+        if (not on and self._cave_door(world, kind) is not None and self.rng.random() < self.cfg.p_cave
                 and self._seek_cave(kind, "peek", world)):
             return True
         toys = self._toys_here(world) if on else []
-        if toys and self.rng.random() < P_TOY:
+        if toys and self.rng.random() < self.cfg.p_toy:
             self._toy = self.rng.choice(toys)
             self._swats_left = self.rng.randint(*TOY_SWATS)
             self._set("to_toy", math.inf)
             return True
+        if not on and self.rng.random() < self.cfg.p_scratch and self._seek(kind, world):
+            return True   # zum Pfeiler und kratzen
         ups = [q for q in self._jump_targets(world, self.platform)
                if q.owner.startswith(BOARD_ID) and q != self.platform]
         walls = [] if on else [w for w in world.walls_near(self.platform, self.x, CLIMB_OFFSET)
@@ -901,7 +899,7 @@ class Cat:
         if ups and (on or r < 0.75):
             self._jump_to(self.rng.choice(ups))
             return True
-        return not on and self._seek(kind, world)
+        return False
 
     def _hungry(self) -> bool:
         """Erst wenn eine ganze Portion reinpasst, sonst wäre sie danach träge."""
@@ -1215,9 +1213,11 @@ class Cat:
         self.facing = 1 if bx >= self.x else -1
         if is_tree(kind):
             self._set("scratch", self.rng.uniform(2.5, 5))
+            if self._post is not None and self._post[0] == kind:   # jedes Mal franst der Sisal etwas mehr aus
+                self.furniture.trees[kind].scratch(self._post[1], 1 / self.cfg.sisal_scratches)
         elif kind == "tree":
             deck = next((p for p in world.platforms if p.owner == TREE_ID), None)
-            if deck is not None and self.rng.random() < 0.5:
+            if deck is not None and self.rng.random() >= self.cfg.p_scratch:
                 self._jump_to(deck, bx)   # hinauf auf die Liegefläche
             else:
                 self._set("scratch", self.rng.uniform(2.5, 5))
