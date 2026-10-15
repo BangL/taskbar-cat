@@ -44,6 +44,12 @@ BOWL_REACH = REACH["bowl"]
 YARN_KICK = (150, 350)   # px/s, so fest stupst sie das Knäuel an
 YARN_BATS = (3, 6)       # so oft hintereinander, dann reicht es
 YARN_REWARD = 1          # Zuneigung pro Stupser
+# Umschlingen und treten: liegt das Knäuel in einer Ecke, kommt es so wieder heraus
+HUG_REACH = 8            # Frame-Pixel: so nah liegt sie daran (das Sprite passt dazu)
+HUG_S = (1.2, 2.0)       # s, so lange hält und tritt sie
+HUG_KICK = (350, 600)    # px/s, der Tritt geht weiter als ein Stupser
+HUG_HOP = (120, 260)     # px/s nach oben: es hüpft aus der Ecke heraus
+HUG_ROOM = 2             # Katzenbreiten Platz: enger gilt das Knäuel als eingeklemmt
 BIGTREE_NEAR = 400       # px neben dem großen Kratzbaum: in seiner Nähe
 BIGTREE_HOP = 0.6        # auf dem großen Kratzbaum: weiter zur nächsten Fläche
 HAMMOCK_REST = ("idle_sit", "sleep", "purr", "groom")
@@ -78,7 +84,8 @@ TREE_CHASE_UP = 120      # px: so weit darf der Zeiger über dieser Fläche sein
 
 AIRBORNE = ("jump", "fall", "thrown")
 CLINGING = ("climb", "hang")
-NO_PLAY = ("sleep", "dragged", "climb", "hang", "hidden", "eat", "sick_lie", "vomit", "bat", "nudge") + CAVE_STATES
+NO_PLAY = ("sleep", "dragged", "climb", "hang", "hidden", "eat", "sick_lie", "vomit", "bat", "hug",
+           "nudge") + CAVE_STATES
 ANIM_FOR_STATE = {"chase": "walk", "approach": "walk", "flee": "walk", "seek": "walk", "idle_sit": "sit", "sick_lie": "lie", "thrown": "fall", "hidden": "sit",
                   "beamed": "dragged", "abducted": "sit", "cave_in": "cave_in", "cave": "cave_peek",
                   "cave_duck": "cave_duck", "cave_sleep": "cave_sleep", "cave_butt": "cave_butt",
@@ -141,6 +148,7 @@ class Cat:
         self._world: World | None = None  # letzte Welt aus tick, für Befehle von außen
         self._in_bed = False
         self._bats_left = 0
+        self._hug = False         # nächster Besuch beim Knäuel: umschlingen statt stupsen
         self._waiting = False   # "seek", aber das Knäuel fliegt gerade: sitzen und zuschauen
         self._post_x = 0.0      # Pfeiler des großen Kratzbaums, an dem sie kratzen will
         self._cave: str | None = None        # großer Kratzbaum, in dessen Höhle sie ist
@@ -295,6 +303,18 @@ class Cat:
         self._ceiling = c
         self._leap("ceiling", (tx - self.x) / t, vy0)
 
+    def _lie_in_hammock(self) -> None:
+        """Mittig in die Matte rücken. Sie ist breiter als die Matte; sitzt sie am Rand,
+        hängt sie seitlich heraus und schaukelt neben dem Stoff."""
+        p = self.platform
+        if p is not None:
+            self.x = (p.x1 + p.x2) / 2
+
+    def hugs_yarn(self) -> bool:
+        """Hält sie das Knäuel gerade? Dann zeichnet das Overlay es vor ihr, sonst läge sie
+        darüber statt darum."""
+        return self.state == "hug"
+
     def hammock(self) -> str | None:
         """Kante der Hängematte, in der sie gerade liegt."""
         if self.state in HAMMOCK_REST and self.platform is not None and in_hammock(self.platform.owner):
@@ -320,7 +340,7 @@ class Cat:
     # --- Simulation ---
 
     def _activity(self) -> str:
-        if self.state in AIRBORNE + CLINGING + ("walk", "approach", "dragged", "chase", "crouch", "flee", "seek", "bat",
+        if self.state in AIRBORNE + CLINGING + ("walk", "approach", "dragged", "chase", "crouch", "flee", "seek", "bat", "hug",
                                                 "to_toy", "swat", "fly_hunt", "fly_crouch", "fly_swat"):
             return "active"
         return "sleep" if self.state in ("sleep", "cave_sleep") else "rest"
@@ -580,8 +600,10 @@ class Cat:
                 self._fly_swat()
             elif self.state == "fly_swat":
                 self._after_fly_swat(world)
+            elif self.state == "hug":
+                self._hug_yarn(world)
             elif self.state == "bat":   # hinterher oder erst mal verschnaufen
-                if self._bats_left <= 0 or not self._seek("yarn", world):
+                if self._bats_left <= 0 or not self._seek_yarn(world):
                     self._set("idle_sit", self.rng.uniform(3, 10))
             else:
                 self._choose(world)
@@ -810,14 +832,17 @@ class Cat:
 
     def _choose(self, world: World) -> None:
         self._goal = None
+        self._hug = False
         self._cave = self._cave_plan = None
         self._push_dir = 0
         self._post = self._toy = None
         if self.platform is not None and in_hammock(self.platform.owner) and self.needs.mood != Mood.SICK:
             if self.needs.energy < 60:          # in der Hängematte erst mal ausruhen
+                self._lie_in_hammock()
                 self._set("sleep", math.inf)
                 return
             if self.rng.random() < 0.6:
+                self._lie_in_hammock()
                 self._set("idle_sit", self.rng.uniform(8, 20))
                 return
         if self.needs.energy < 20:
@@ -841,7 +866,7 @@ class Cat:
             return
         # Würfel nur mit Knäuel bzw. Kratzbaum, sonst verschiebt sich der Zufall für alles andere
         if (self.furniture.usable("yarn", world) is not None
-                and self.rng.random() < self.cfg.p_yarn and self._seek("yarn", world)):
+                and self.rng.random() < self.cfg.p_yarn and self._seek_yarn(world)):
             self._bats_left = self.rng.randint(*YARN_BATS)
             return
         if (self.furniture.usable("tree", world) is not None and self.platform.is_floor
@@ -972,6 +997,11 @@ class Cat:
             spots = [pos[0]]
         elif kind == "bowl" and self._push_dir:   # auf der Innenseite, mit der Pfote dran
             spots = [pos[0] - self._push_dir * REACH["yarn"] * self.sprite / 32]
+        elif kind == "yarn" and self._hug:
+            # auf der engen Seite liegen, damit der Tritt ins Freie geht
+            reach = HUG_REACH * self.sprite / 32
+            side = -self._open_side(pos, world)
+            spots = [pos[0] + side * reach, pos[0] - side * reach]
         else:
             reach = REACH[kind] * self.sprite / 32
             side = -1 if self.x < pos[0] else 1
@@ -981,6 +1011,48 @@ class Cat:
             if q is not None:
                 return x, q
         return None
+
+    def _yarn_room(self, pos, world: World) -> tuple[float, float]:
+        """Platz links und rechts des Knäuels auf seiner Kante."""
+        p = self.furniture.platform("yarn")
+        if p is None:
+            return math.inf, math.inf
+        return pos[0] - p.x1, p.x2 - pos[0]
+
+    def _open_side(self, pos, world: World) -> int:
+        """Richtung, in der das Knäuel mehr Platz hat (dorthin tritt sie es)."""
+        left, right = self._yarn_room(pos, world)
+        return 1 if right >= left else -1
+
+    def _wants_hug(self, world: World) -> bool:
+        """Umschlingen und treten statt stupsen: immer, wenn das Knäuel kaum noch Platz hat
+        (sonst kloppt sie es in der Ecke nur hin und her), sonst ab und zu."""
+        if self.cfg.p_hug <= 0:
+            return False
+        pos = self.furniture.usable("yarn", world)
+        if pos is None:
+            return False
+        if min(self._yarn_room(pos, world)) < HUG_ROOM * self.sprite:
+            return True
+        return self.rng.random() < self.cfg.p_hug
+
+    def _hug_yarn(self, world: World) -> None:
+        """Sie liegt darum und tritt; am Ende fliegt es in die Richtung, in die sie schaut."""
+        self._bats_left -= 1
+        self.furniture.kick(self.facing * self.rng.uniform(*HUG_KICK),
+                            -self.rng.uniform(*HUG_HOP))
+        self.needs.affection = min(100.0, self.needs.affection + YARN_REWARD)
+        self._hug = False
+        if self._bats_left <= 0 or not self._seek_yarn(world):
+            self._set("idle_sit", self.rng.uniform(3, 10))
+
+    def _seek_yarn(self, world: World) -> bool:
+        """Hinterher - und dabei entscheiden, ob sie es stupst oder umschlingt."""
+        self._hug = self._wants_hug(world)
+        if self._seek("yarn", world):
+            return True
+        self._hug = False
+        return False
 
     def _use_tree(self, world: World, bx: float) -> None:
         """Am kleinen Kratzbaum angekommen: nach dem Bällchen schlagen, am Pfeiler kratzen
@@ -1347,6 +1419,9 @@ class Cat:
         elif kind == "tree":
             self._use_tree(world, bx)
         elif kind == "yarn":
+            if self._hug:
+                self._set("hug", self.rng.uniform(*HUG_S))
+                return
             self._bats_left -= 1
             self.furniture.kick(self.facing * self.rng.uniform(*YARN_KICK))
             self.needs.affection = min(100.0, self.needs.affection + YARN_REWARD)

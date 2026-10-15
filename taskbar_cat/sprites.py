@@ -18,7 +18,7 @@ UFO_VERSION = 1
 FURNITURE_VERSION = 6
 FRAME = 32
 ANIMS = {"sit": 2, "groom": 2, "vomit": 2, "walk": 4, "crawl": 4, "jump": 1, "fall": 1, "sleep": 2, "eat": 2, "purr": 2, "dragged": 2, "lie": 2, "climb": 4, "hang": 2,
-         "crouch": 2, "swipe": 2, "cheer": 2, "bat": 2, "scratch": 2, "climb_post": 4,
+         "crouch": 2, "swipe": 2, "cheer": 2, "bat": 2, "hug": 2, "scratch": 2, "climb_post": 4,
          "hammock": 4, "hammock_sleep": 4, "cave_in": 2, "cave_peek": 8, "cave_duck": 2, "cave_sleep": 2,
          "cave_butt": 4}
 MOODS = ("normal", "sad", "sick")
@@ -498,6 +498,21 @@ def _bat(c: _Pen, f: int):
     c.head(22, 23, "wide")
 
 
+def _hug(c: _Pen, f: int):
+    """Liegt um das Knaeuel, Vorderpfote drauf, Hinterfuss tritt."""
+    c.tail([(5, 29), (1, 27), (1, 23)])
+    c.ell(11, 26, 7, 5)
+    c.rect(13, 24, 5, 4)
+    if f:
+        c.rect(16, 25, 15, 2)
+    else:
+        c.rect(16, 27, 10, 2)
+    c.rect(17, 22, 7, 2)
+    c.rect(23, 22 + f, 5, 2)
+    c.stripes([(8, 24), (11, 24)])
+    c.head(18, 17, "wide")
+
+
 def _scratch(c: _Pen, f: int):
     """Am Kratzbaum: aufgerichtet, Vorderpfoten am Pfosten, die ziehen abwechselnd runter."""
     d = 2 * f
@@ -520,7 +535,7 @@ def _cheer(c: _Pen, f: int):
 POSES = {"sit": _sit, "groom": _groom, "vomit": _vomit, "walk": _walk, "crawl": _crawl, "jump": _jump, "fall": _fall, "sleep": _sleep,
          "eat": _eat, "purr": _purr, "dragged": _dragged, "lie": _lie,
          "climb": _climb, "hang": _hang,
-         "crouch": _crouch, "swipe": _swipe, "cheer": _cheer, "bat": _bat, "scratch": _scratch,
+         "crouch": _crouch, "swipe": _swipe, "cheer": _cheer, "bat": _bat, "hug": _hug, "scratch": _scratch,
          "climb_post": _climb_post, "hammock": _hammock,
          "hammock_sleep": lambda c, f: _hammock(c, f, sleep=True),
          "cave_in": _cave_in, "cave_peek": _cave_peek, "cave_duck": _cave_duck, "cave_sleep": _cave_sleep,

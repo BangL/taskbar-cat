@@ -1,5 +1,7 @@
 import random
 
+import pytest
+
 from taskbar_cat import storage
 from taskbar_cat.cat import BOWL_REACH, SPRITE, Cat
 from taskbar_cat.furniture import BOWL_PORTIONS, Furniture
@@ -427,6 +429,41 @@ def test_cat_plays_with_yarn():
     run(c, w, 30)
     assert c.needs.affection > 50 - 1   # Stupser gleichen den Verfall mehr als aus
     assert c.furniture.position("yarn", w)[0] != start
+
+
+def test_cat_hugs_the_yarn_and_kicks_it_out_of_the_corner():
+    """In der Ecke stupst sie es nicht weiter gegen die Wand, sondern umschlingt es und
+    tritt es heraus - auch wenn das Umschlingen sonst selten wäre."""
+    w = world()
+    f = yarn_at(w, 30)                      # ganz links in der Ecke
+    c = cat_with(w, f, x=600)
+    c.cfg = play_cfg(1)
+    c.cfg.set("p_hug", 0.05)                # selten - in der Ecke macht sie es trotzdem
+    assert run(c, w, 60, until=lambda c: c.state == "hug")
+    assert abs(c.x - f.position("yarn", w)[0]) == pytest.approx(8 * SPRITE / 32)
+    assert c.facing == 1                    # schaut ins Freie, dorthin tritt sie
+    assert run(c, w, 10, until=lambda c: f.yarn.vx > 0)
+    assert f.yarn.vy < 0 and f.yarn.platform is None    # es hüpft los
+    assert run(c, w, 20, until=lambda c: f.yarn.x > 400)
+
+
+def test_hug_can_be_switched_off():
+    w = world()
+    f = yarn_at(w, 1300)                    # mitten auf dem Boden, keine Ecke
+    c = cat_with(w, f)
+    c.cfg = play_cfg(1)
+    c.cfg.set("p_hug", 0.0)
+    assert not run(c, w, 60, until=lambda c: c.state == "hug")
+    assert run(c, w, 10, until=lambda c: c.state == "bat")
+
+
+def test_hug_happens_in_the_open_too():
+    w = world()
+    f = yarn_at(w, 1300)
+    c = cat_with(w, f)
+    c.cfg = play_cfg(1)
+    c.cfg.set("p_hug", 1.0)
+    assert run(c, w, 60, until=lambda c: c.state == "hug")
 
 
 def test_cat_bats_several_times_then_stops():

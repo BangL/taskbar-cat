@@ -252,7 +252,9 @@ class OverlayManager(QObject):
                 self._add_toys(furniture, kind, x - size / 2, y - FRAME_H["tree"] * size / sprites.FRAME,
                                size / sprites.FRAME)
             elif kind == "yarn":   # Fadenlinien wechseln alle Achtel-Sprite beim Rollen
-                frames = (kind, x, y, ("yarn", "yarn_roll")[int(x / (size / 8)) % 2], None)
+                name = ("yarn", "yarn_roll")[int(x / (size / 8)) % 2]
+                hugged = cat.hugs_yarn()      # umschlungen: vor ihr, sonst liegt sie darüber
+                frames = (kind, x, y, None if hugged else name, name if hugged else None)
             elif furniture.bowl_upside_down:
                 frames = (kind, x, y, "bowl_tipped", None)
             else:

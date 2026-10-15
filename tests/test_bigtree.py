@@ -999,6 +999,38 @@ def test_overlay_cuts_the_hidden_tree_into_pieces(overlay, kind):
     assert len(om._furn_parts.get(kind, om._furn_rects.get(kind, ()))) != whole  # Maus zieht mit
 
 
+def test_she_lies_in_the_middle_of_the_hammock():
+    """Sie ist breiter als die Matte - am Rand haengt sie seitlich heraus."""
+    w, f = hammock_tree()
+    ww = f.world_with(w, SPRITE)
+    mat = next(p for p in ww.platforms if bigtree.in_hammock(p.owner))
+    c = cat_near(f, w, energy=10)
+    c._land(ww, mat)
+    c.x = mat.x1 + 2
+    c._set("idle_sit", 0.0)
+    c.tick(DT, ww, False)
+    assert c.x == pytest.approx((mat.x1 + mat.x2) / 2)
+    assert c.hammock() == mat.owner
+
+
+def test_overlay_draws_the_yarn_in_front_while_she_hugs_it(overlay):
+    from taskbar_cat.world import Output, Rect, World
+    om, ov = overlay
+    g = ov.screen.geometry()
+    w = World([Output("x", Rect(0, 0, g.width(), g.height()), Rect(0, 0, g.width(), g.height()))], [])
+    f = Furniture()
+    f.place("yarn", w, g.width() / 2, 50, 20)
+    settle(f, w, 10)
+    c = Cat(Needs(), random.Random(0))
+    c.furniture = f
+    c.spawn(w)
+    om.render(c, w, 0, f)
+    assert ov.scene.property("furnitureBack") and not ov.scene.property("furnitureFront")
+    c._set("hug", 1)
+    om.render(c, w, 0, f)
+    assert ov.scene.property("furnitureFront") and not ov.scene.property("furnitureBack")
+
+
 def test_overlay_draws_the_small_tree_with_its_ball(overlay):
     """Der kleine Kratzbaum: Bällchen wie am großen, Frame nach Verschleiß."""
     from taskbar_cat.furniture import TREE_TOY

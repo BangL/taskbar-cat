@@ -123,9 +123,14 @@ class Body:
         self.drop(0.0, 0.0)
         self.placed = False
 
-    def kick(self, vx: float) -> None:
-        if self.resting and self.bouncy:
-            self.vx = vx
+    def kick(self, vx: float, vy: float = 0.0) -> None:
+        """vy (negativ) lässt es abheben: so kommt es auch über eine Kante hinweg."""
+        if not (self.resting and self.bouncy):
+            return
+        self.vx = vx
+        if vy:
+            self.vy = vy
+            self.platform = self._ride = None
 
     def shove(self, vx: float) -> None:
         """Über die Kante schieben (auch was nicht rollt, rutscht dann ein Stück)."""
@@ -602,9 +607,9 @@ class Furniture:
             return None
         return top if b.y - self.trees[kind].size()[1] * sprite / 32 <= top + SNAP_PX else None
 
-    def kick(self, vx: float) -> None:
-        """Wollknäuel anstupsen."""
-        self.yarn.kick(vx)
+    def kick(self, vx: float, vy: float = 0.0) -> None:
+        """Wollknäuel anstupsen; mit vy getreten, dann hüpft es los."""
+        self.yarn.kick(vx, vy)
 
     def world_with(self, world: World, sprite: float) -> World:
         """Welt samt Liegeflächen der Kratzbäume. Kleiner Kratzbaum: wie ein schmales Fenster

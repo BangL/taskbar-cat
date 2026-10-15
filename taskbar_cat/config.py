@@ -45,6 +45,10 @@ SPECS: dict[str, Spec] = {
     "p_groom": Spec("Putzen", "float", 0, 1, 0.05, "", "Anteil der Ruhepausen, in denen sie sich putzt"),
     "p_yarn": Spec("Mit Wolle spielen", "float", 0, 1, 0.05, "",
                    "Wahrscheinlichkeit pro Entscheidung, wenn ein Wollknäuel aufgestellt ist"),
+    "p_hug": Spec("Umschlingen und treten", "float", 0, 1, 0.05, "",
+                  "Anteil der Besuche am Knäuel, bei denen sie es umschlingt und mit den "
+                  "Hinterfüßen wegtritt statt es nur anzustupsen; liegt es in einer Ecke, "
+                  "macht sie es immer so (0 schaltet es ganz ab)"),
     "p_tree": Spec("Hingehen", "float", 0, 1, 0.05, "",
                    "Wahrscheinlichkeit pro Entscheidung, einen Kratzbaum zu nutzen (der kleine irgendwo "
                    "auf dem Boden, ein großer in ihrer Nähe); was sie dort tut, legen die Werte darunter fest"),
@@ -82,6 +86,7 @@ class Config:
     p_hang: float = 0.10
     p_groom: float = 0.35
     p_yarn: float = 0.2
+    p_hug: float = 0.35
     p_tree: float = 0.25
     p_scratch: float = 0.5
     p_cave: float = 0.3
