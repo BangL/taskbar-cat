@@ -76,6 +76,39 @@ class Ceiling:
 WALL_MARGIN = 30  # Katze klettert außen an der Kante, braucht Platz zum Bildschirmrand
 
 
+def overlap(a: Rect, b: Rect) -> Rect | None:
+    """Gemeinsame Fläche zweier Rechtecke (None, wenn sie sich nicht berühren)."""
+    x1, y1 = max(a.x, b.x), max(a.y, b.y)
+    x2, y2 = min(a.right, b.right), min(a.bottom, b.bottom)
+    return Rect(x1, y1, x2 - x1, y2 - y1) if x2 > x1 and y2 > y1 else None
+
+
+def uncovered(rect: Rect, covers) -> list[Rect]:
+    """rect ohne die Flächen covers, als Rechtecke. Damit wird gezeichnet, was von einem
+    Kratzbaum hinter Fenstern (und von der Katze darin) noch zu sehen ist: je Fenster
+    bleiben links, rechts, oben und unten die Streifen stehen, die es nicht verdeckt."""
+    pieces = [rect]
+    for c in covers:
+        rest = []
+        for p in pieces:
+            o = overlap(p, c)
+            if o is None:
+                rest.append(p)
+                continue
+            if o.y > p.y:
+                rest.append(Rect(p.x, p.y, p.w, o.y - p.y))
+            if o.bottom < p.bottom:
+                rest.append(Rect(p.x, o.bottom, p.w, p.bottom - o.bottom))
+            if o.x > p.x:
+                rest.append(Rect(p.x, o.y, o.x - p.x, o.h))
+            if o.right < p.right:
+                rest.append(Rect(o.right, o.y, p.right - o.right, o.h))
+        pieces = rest
+        if not pieces:
+            break
+    return pieces
+
+
 def _subtract(pieces: list[tuple[float, float]], a: float, b: float) -> list[tuple[float, float]]:
     out = []
     for x1, x2 in pieces:

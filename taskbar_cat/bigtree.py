@@ -221,6 +221,7 @@ class Tree:
     hanging: bool = False
     top: float = 0.0           # hängend: Oberkante (global)
     locked: bool = False       # festgestellt: weder Mausrad noch Ziehen verstellen ihn
+    behind: bool = False       # steht hinter den Fenstern statt davor
     wear: list = field(default_factory=list)   # je Pfeiler 0..1: so zerkratzt ist der Sisal
 
     def size(self) -> tuple[int, int]:
@@ -245,6 +246,8 @@ class Tree:
             d["hang_top"] = self.top
         if self.locked:
             d["locked"] = True
+        if self.behind:
+            d["behind"] = True
         if any(self.wear):
             d["wear"] = [round(v, 4) for v in self.wear]
         return d
@@ -261,6 +264,7 @@ class Tree:
         if isinstance(top, (int, float)) and not isinstance(top, bool):
             t.hanging, t.top = True, float(top)
         t.locked = d.get("locked") is True
+        t.behind = d.get("behind") is True
         wear = d.get("wear")
         if isinstance(wear, list):
             t.wear = [max(0.0, min(1.0, float(v))) if isinstance(v, (int, float)) else 0.0 for v in wear]

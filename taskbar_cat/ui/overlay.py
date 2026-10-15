@@ -20,11 +20,11 @@ from PyQt6.QtQuick import QQuickImageProvider
 from .. import bigtree, sprites
 from ..backend.base import Backend
 from ..cat import Cat
-from ..furniture import FRAME_H, Furniture, fly_path
+from ..furniture import FRAME_H, Furniture, fly_path, window_rects
 from ..guard import guarded
 from ..interaction import DragTracker, RubDetector
 from ..paths import resource_file
-from ..world import World
+from ..world import Rect, World, uncovered
 from .silhouette import Silhouettes
 
 
@@ -73,6 +73,26 @@ class BigtreeImages(QQuickImageProvider):
                 self._cache.clear()
             self._cache[id_] = img
         return img, img.size()
+
+
+def clip_of(rect: Rect, covers, o: QPoint) -> list[dict]:
+    """Was von rect (global) zu sehen ist, in Stücken und lokal zum Monitor: ohne covers
+    das ganze Rechteck. Das QML zeichnet jedes Stück beschnitten, so verschwindet ein
+    Kratzbaum hinter den Fenstern - und die Katze darin mit ihm."""
+    return [{"x": round(p.x) - o.x(), "y": round(p.y) - o.y(),
+             "w": round(p.right) - round(p.x), "h": round(p.bottom) - round(p.y)}
+            for p in uncovered(rect, covers)]
+
+
+def to_local(items: list[dict], o: QPoint) -> list[dict]:
+    """Möbelteile fürs QML auf den Monitor umrechnen, samt ihrer sichtbaren Stücke."""
+    out = []
+    for it in items:
+        d = {**it, "x": it["x"] - o.x(), "y": it["y"] - o.y()}
+        if "rect" in d:
+            d["clip"] = clip_of(d.pop("rect"), d.pop("covers"), o)
+        out.append(d)
+    return out
 
 
 def bigtree_source(tree: bigtree.Tree, load: tuple[str, int] | None = None, front: bool = False) -> str:
@@ -134,6 +154,8 @@ class OverlayManager(QObject):
         self._toy_angles: list[float] = []       # deren Auslenkung (rad), gleiche Reihenfolge
         self._pile: tuple[float, float] | None = None   # verschüttetes Futter (Mitte unten, global)
         self._furn_pos: dict[str, tuple[float, float]] = {}
+        self._covers: list = []                  # Fenster, hinter denen Bäume verschwinden
+        self._cat_clip: list = []                # sichtbare Stücke der Katze (global)
         self._locked: set[str] = set()           # festgestellte Bäume: kein Ziehen
         self._lying: tuple[str, float] | None = None   # (Hängematte, seit wann sie drin liegt)
         self._sink: tuple[str, str, int] | None = None  # (Baum, Brett, Pixel) Durchhängen
@@ -206,8 +228,11 @@ class OverlayManager(QObject):
         self._toys = []
         self._toy_angles = []
         self._pile = None
+        self._covers = []
         if furniture is None:
             return []
+        if any(furniture.behind(k) for k in furniture.bodies):
+            self._covers = window_rects(world)
         out = []
         size = cat.sprite
         for kind in furniture.bodies:
@@ -233,7 +258,9 @@ class OverlayManager(QObject):
             else:
                 level = min(furniture.food, sprites.BOWL_LEVELS)
                 frames = (kind, x, y, f"bowl_{level}", None)
-            self._furn_rects[kind] = self._furniture_rects(frames, size)
+            self._furn_rects[kind] = self._uncovered_rects(
+                self._furniture_rects(frames, size),
+                self._covers if furniture.behind(kind) else ())
             out.append(frames)
             if frames[3] == "bowl_tipped" and furniture.spill and furniture.tipped:
                 # Das Futter daneben liegt nur da: kein Mauskasten, keine Input-Region.
@@ -248,11 +275,14 @@ class OverlayManager(QObject):
         Die Bäume kommen nicht aus dem Atlas, ihre Mausflächen sind die Teile des Aufbaus."""
         tree = furniture.trees[kind]
         left, top, s, lay = bigtree.geometry(tree, pos, size)
-        self._furn_parts[kind] = [QRect(round(r.x), round(r.y), round(r.w), round(r.h))
-                                  for r in bigtree.parts(tree, pos, size)]
+        covers = self._covers if furniture.behind(kind) else ()
+        self._furn_parts[kind] = list(self._uncovered_rects(
+            (QRect(round(r.x), round(r.y), round(r.w), round(r.h))
+             for r in bigtree.parts(tree, pos, size)), covers))
         load = self._sink[1:] if self._sink is not None and self._sink[0] == kind else None
         self._bigtrees.append({"kind": kind, "src": bigtree_source(tree, load),
-                               "x": left, "y": top, "w": lay.w * s, "h": lay.h * s})
+                               "x": left, "y": top, "w": lay.w * s, "h": lay.h * s,
+                               "rect": Rect(left, top, lay.w * s, lay.h * s), "covers": covers})
         self._add_toys(furniture, kind, left, top, s)
         behind = cat.behind()
         for part in (load, (behind[1], 1) if behind is not None and behind[0] == kind else None):
@@ -260,16 +290,22 @@ class OverlayManager(QObject):
             if front is not None:
                 fx, fy, fw, fh = front
                 self._fronts.append({"src": bigtree_source(tree, part, front=True),
-                                     "x": left + fx * s, "y": top + fy * s, "w": fw * s, "h": fh * s})
+                                     "x": left + fx * s, "y": top + fy * s, "w": fw * s, "h": fh * s,
+                                     "rect": Rect(left + fx * s, top + fy * s, fw * s, fh * s),
+                                     "covers": covers})
 
     def _add_toys(self, furniture: Furniture, kind: str, left: float, top: float, s: float) -> None:
         """Bällchen eines Kratzbaums (links oben seines Bildes bei left, top) fürs QML;
         sie pendeln, stecken also nicht im Bild."""
+        covers = self._covers if furniture.behind(kind) else ()
         for i, (tx, ty, n, col) in enumerate(furniture.toys_of(kind)):
-            self._toys.append({"x": left + (tx + 0.5) * s, "y": top + ty * s, "len": n * s, "s": s,
+            x, y, reach = left + (tx + 0.5) * s, top + ty * s, (n + 5) * s
+            self._toys.append({"x": x, "y": y, "len": n * s, "s": s,
                                "color": sprites.TOY_COLORS[col % len(sprites.TOY_COLORS)].name(),
                                "string": sprites.SISAL_DARK.name(),
-                               "outline": sprites.FURNITURE_OUTLINE.name()})
+                               "outline": sprites.FURNITURE_OUTLINE.name(),
+                               # so weit kann es ausschlagen; darin wird es beschnitten
+                               "rect": Rect(x - reach, y, 2 * reach, reach), "covers": covers})
             self._toy_angles.append(furniture.toy_angle(kind, i))
 
     def _flies(self, furniture: Furniture | None, size: int) -> list[float]:
@@ -296,6 +332,18 @@ class OverlayManager(QObject):
         self._sink = (*bigtree.hammock_of(owner), px)
         return px * bigtree.CAT_SINK / bigtree.LOAD_SAG * cat.sprite / sprites.FRAME
 
+    @staticmethod
+    def _uncovered_rects(rects, covers) -> tuple[QRect, ...]:
+        """Mausflächen ohne die von Fenstern verdeckten Teile: was man nicht sieht, nimmt
+        auch keine Klicks - die gehen ins Fenster davor."""
+        if not covers:
+            return tuple(rects)
+        out = []
+        for r in rects:
+            out += [QRect(round(p.x), round(p.y), round(p.w), round(p.h))
+                    for p in uncovered(Rect(r.x(), r.y(), r.width(), r.height()), covers)]
+        return tuple(out)
+
     def _furniture_rects(self, frames, size: int) -> tuple[QRect, ...]:
         """Mausflächen eines Möbels: alle gezeichneten Frames zusammen."""
         _, x, y, back, front = frames
@@ -321,6 +369,10 @@ class OverlayManager(QObject):
                                               size / sprites.FRAME, flip)
                            if cat.visible else ())
         furn = self._furniture_frames(cat, world, furniture)
+        hidden = cat.hidden_behind(world) if furniture is not None and self._covers else False
+        cat_rect = Rect(round(cat.x - size / 2), round(cat.y - size + sink), size, size)
+        self._cat_clip = uncovered(cat_rect, self._covers if hidden else ())
+        self._cat_rects = self._uncovered_rects(self._cat_rects, self._covers if hidden else ())
         flies = self._flies(furniture, size)
         for ov in self._overlays.values():
             o = ov.origin
@@ -338,23 +390,30 @@ class OverlayManager(QObject):
                 w.setProperty("srcX", sx)
                 w.setProperty("srcY", sy)
                 w.setProperty("flip", flip)
+                w.setProperty("catPieces", [{"x": round(p.x) - o.x(), "y": round(p.y) - o.y(),
+                                             "w": round(p.right) - round(p.x),
+                                             "h": round(p.bottom) - round(p.y)}
+                                            for p in self._cat_clip])
             self._render_ufo(w, cat, o)
             back, front = [], []
             for kind, x, y, b, f in furn:
+                covers = self._covers if furniture is not None and furniture.behind(kind) else ()
                 for name, layer in ((b, back), (f, front)):
                     if name is not None:
                         fx, fy = sprites.furniture_origin(name)
+                        h = sprites.furniture_height(name) * size / sprites.FRAME
                         layer.append({"x": x - o.x(), "y": y - o.y(), "sx": fx, "sy": fy,
-                                      "h": sprites.furniture_height(name)})
+                                      "h": sprites.furniture_height(name),
+                                      "clip": clip_of(Rect(x - size / 2, y - h, size, h), covers, o)})
             if (back, front) != ov.furniture:   # Repeater nur bei Änderung neu aufbauen
                 ov.furniture = (back, front)
                 w.setProperty("furnitureBack", back)
                 w.setProperty("furnitureFront", front)
-            trees = [{**tr, "x": tr["x"] - o.x(), "y": tr["y"] - o.y()} for tr in self._bigtrees]
+            trees = to_local(self._bigtrees, o)
             if trees != ov.bigtrees:
                 ov.bigtrees = trees
                 w.setProperty("bigtrees", trees)
-            toys = [{**tr, "x": tr["x"] - o.x(), "y": tr["y"] - o.y()} for tr in self._toys]
+            toys = to_local(self._toys, o)
             if toys != ov.toys:
                 ov.toys = toys
                 w.setProperty("bigtreeToys", toys)
@@ -365,7 +424,7 @@ class OverlayManager(QObject):
             w.setProperty("flySize", size / sprites.FRAME)
             w.setProperty("flyPos", local_flies)
             w.setProperty("flyCount", len(flies) // 3)
-            fronts = [{**tr, "x": tr["x"] - o.x(), "y": tr["y"] - o.y()} for tr in self._fronts]
+            fronts = to_local(self._fronts, o)
             if fronts != ov.fronts:
                 ov.fronts = fronts
                 w.setProperty("bigtreeFronts", fronts)

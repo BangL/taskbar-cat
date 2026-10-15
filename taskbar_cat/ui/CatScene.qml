@@ -7,6 +7,11 @@ import QtQuick
 // Die Fensterhüllen (overlay.qml für Layer-Shell, overlay_x11.qml für X11)
 // binden diese Szene nur ein. Neue Grafik gehört hierher und gilt damit für
 // jede Arbeitsumgebung.
+//
+// Bilder erscheinen nur in ihren sichtbaren Stücken (ClippedImage). Ohne ein
+// Fenster davor ist das Stück das ganze Bild; steht ein Kratzbaum hinter den
+// Fenstern, bleiben nur die Streifen daneben stehen - und die Katze darin
+// verschwindet mit ihm.
 Item {
     id: scene
 
@@ -18,16 +23,18 @@ Item {
     property int srcY: 0
     property bool flip: false
     property bool catVisible: false
+    // Sichtbare Stücke der Katze, lokal: {x, y, w, h}; ohne Fenster davor eins über alles
+    property var catPieces: []
     property int spriteSize: 96
     property var platforms: []
-    // Möbel: je {x, y (Mitte unten, lokal), sx, sy, h (Frame im Atlas)}; vorn = vor der Katze
+    // Möbel: je {x, y (Mitte unten, lokal), sx, sy, h (Frame im Atlas), clip}; vorn = vor der Katze
     property url furnitureAtlas
     property var furnitureBack: []
     property var furnitureFront: []
-    // Große Kratzbäume: je {kind, src (image://bigtree/...), x, y, w, h} (lokal, links oben)
+    // Große Kratzbäume: je {kind, src (image://bigtree/...), x, y, w, h, clip} (lokal, links oben)
     property var bigtrees: []
-    // Bällchen der großen Kratzbäume: {x, y (Aufhängung), len (Faden), s (Pixelgröße), color,
-    // string, outline};
+    // Bällchen der Kratzbäume: {x, y (Aufhängung), len (Faden), s (Pixelgröße), color,
+    // string, outline, clip};
     // toyAngles: Auslenkung je Bällchen in rad (positiv = nach rechts)
     property var bigtreeToys: []
     // Fliegen über verschüttetem Futter: flyPos flach je Fliege x, y (lokal), Flügel oben (0/1)
@@ -35,7 +42,7 @@ Item {
     property var flyPos: []
     property real flySize: 1
     property var toyAngles: []
-    // Vor der Katze: durchhängende Hängematte oder Höhlenwand: {src (.../front), x, y, w, h}
+    // Vor der Katze: durchhängende Hängematte oder Höhlenwand: {src (.../front), x, y, w, h, clip}
     property var bigtreeFronts: []
     // UFO-Easter-Egg (Mitte der Untertasse, Strahl von beamTop bis beamBottom)
     property url ufoSource
@@ -55,6 +62,44 @@ Item {
     signal catReleased(real x, real y, int button)
     signal catCanceled()
     signal bigtreeWheel(string kind, real dx, real dy, bool ctrl)
+
+    // Ein Bild, von dem nur die Stücke in pieces gezeichnet werden. Das Bild selbst liegt
+    // bei (ix, iy) und ist iw x ih groß, unabhängig davon, wie es zerschnitten ist.
+    component ClippedImage: Repeater {
+        property var pieces: []
+        property url src
+        property real ix: 0
+        property real iy: 0
+        property real iw: 0
+        property real ih: 0
+        property rect part: Qt.rect(0, 0, 0, 0)   // Ausschnitt der Quelle (Atlas), leer = ganz
+        property bool mirrored: false
+        property real alpha: 1
+        property bool cached: true
+        property bool shown: true
+
+        model: pieces
+        Item {
+            x: modelData.x
+            y: modelData.y
+            width: modelData.w
+            height: modelData.h
+            clip: true
+            visible: shown
+            Image {
+                x: Math.round(ix) - parent.x
+                y: Math.round(iy) - parent.y
+                width: iw
+                height: ih
+                source: src
+                sourceClipRect: part
+                mirror: mirrored
+                opacity: alpha
+                cache: cached
+                smooth: false
+            }
+        }
+    }
 
     Repeater {
         model: scene.platforms
@@ -80,22 +125,26 @@ Item {
     Repeater {
         model: scene.bigtrees
         Item {
-            x: Math.round(modelData.x)
-            y: Math.round(modelData.y)
-            width: Math.round(modelData.w)
-            height: Math.round(modelData.h)
-            Image {
-                anchors.fill: parent
-                source: modelData.src
-                smooth: false
-                cache: false
+            readonly property var tree: modelData
+            ClippedImage {
+                pieces: tree.clip
+                src: tree.src
+                ix: tree.x
+                iy: tree.y
+                iw: Math.round(tree.w)
+                ih: Math.round(tree.h)
+                cached: false
             }
             // Mausrad: hoch/runter = Höhe, seitlich = Breite, mit Strg auch hoch/runter
-            // die Breite (Tasten gehen an die Katze)
+            // die Breite (Tasten gehen an die Katze). Über verdeckten Stellen kommt hier
+            // nichts an, die liegen außerhalb der Input-Region.
             MouseArea {
-                anchors.fill: parent
+                x: Math.round(tree.x)
+                y: Math.round(tree.y)
+                width: Math.round(tree.w)
+                height: Math.round(tree.h)
                 acceptedButtons: Qt.NoButton
-                onWheel: (e) => scene.bigtreeWheel(modelData.kind, e.angleDelta.x, e.angleDelta.y,
+                onWheel: (e) => scene.bigtreeWheel(tree.kind, e.angleDelta.x, e.angleDelta.y,
                                                    (e.modifiers & Qt.ControlModifier) !== 0)
             }
         }
@@ -105,30 +154,46 @@ Item {
     Repeater {
         model: scene.bigtreeToys
         Item {
-            readonly property real s: modelData.s
-            x: Math.round(modelData.x - width / 2)
-            y: Math.round(modelData.y)
-            width: 5 * s
-            height: modelData.len + 4 * s
-            transformOrigin: Item.Top
-            rotation: -(scene.toyAngles[index] || 0) * 180 / Math.PI
-            Rectangle {
-                x: s
-                width: 3 * s
-                height: modelData.len
-                color: modelData.outline
-                Rectangle { x: s; width: s; height: parent.height; color: modelData.string }
-            }
-            Rectangle {
-                y: modelData.len - s
-                width: 5 * s
-                height: 5 * s
-                radius: width / 2          // rund: sieht auch schräg wie eine Kugel aus
-                antialiasing: false        // Pixel-Optik wie der Rest
-                color: modelData.outline
-                Rectangle {
-                    x: s; y: s; width: 3 * s; height: 3 * s
-                    radius: width / 2; antialiasing: false; color: modelData.color
+            readonly property var toy: modelData
+            readonly property real angle: scene.toyAngles[index] || 0
+            Repeater {
+                model: toy.clip
+                Item {
+                    // s gehört hierher und nicht ans Bällchen darunter: QML sucht einen
+                    // Namen nur im Wurzelobjekt der Komponente, nicht beim Eltern-Item
+                    readonly property real s: toy.s
+                    x: modelData.x
+                    y: modelData.y
+                    width: modelData.w
+                    height: modelData.h
+                    clip: true
+                    Item {
+                        x: Math.round(toy.x - width / 2) - parent.x
+                        y: Math.round(toy.y) - parent.y
+                        width: 5 * s
+                        height: toy.len + 4 * s
+                        transformOrigin: Item.Top
+                        rotation: -angle * 180 / Math.PI
+                        Rectangle {
+                            x: s
+                            width: 3 * s
+                            height: toy.len
+                            color: toy.outline
+                            Rectangle { x: s; width: s; height: parent.height; color: toy.string }
+                        }
+                        Rectangle {
+                            y: toy.len - s
+                            width: 5 * s
+                            height: 5 * s
+                            radius: width / 2          // rund: sieht auch schräg wie eine Kugel aus
+                            antialiasing: false        // Pixel-Optik wie der Rest
+                            color: toy.outline
+                            Rectangle {
+                                x: s; y: s; width: 3 * s; height: 3 * s
+                                radius: width / 2; antialiasing: false; color: toy.color
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -136,41 +201,40 @@ Item {
 
     Repeater {
         model: scene.furnitureBack
-        Image {
-            source: scene.furnitureAtlas
-            sourceClipRect: Qt.rect(modelData.sx, modelData.sy, 32, modelData.h)
-            x: Math.round(modelData.x - width / 2)
-            y: Math.round(modelData.y - height)
-            width: scene.spriteSize
-            height: scene.spriteSize * modelData.h / 32
-            smooth: false
+        ClippedImage {
+            pieces: modelData.clip
+            src: scene.furnitureAtlas
+            part: Qt.rect(modelData.sx, modelData.sy, 32, modelData.h)
+            ix: modelData.x - scene.spriteSize / 2
+            iy: modelData.y - scene.spriteSize * modelData.h / 32
+            iw: scene.spriteSize
+            ih: scene.spriteSize * modelData.h / 32
         }
     }
 
-    Image {
-        id: sprite
-        source: scene.atlas
-        sourceClipRect: Qt.rect(scene.srcX, scene.srcY, 32, 32)
-        x: Math.round(scene.catX - width / 2)
-        y: Math.round(scene.catY - height)
-        width: scene.spriteSize
-        height: scene.spriteSize
-        smooth: false
-        mirror: scene.flip
-        opacity: scene.catOpacity
-        visible: scene.catVisible
+    ClippedImage {
+        pieces: scene.catPieces
+        shown: scene.catVisible
+        src: scene.atlas
+        part: Qt.rect(scene.srcX, scene.srcY, 32, 32)
+        ix: scene.catX - scene.spriteSize / 2
+        iy: scene.catY - scene.spriteSize
+        iw: scene.spriteSize
+        ih: scene.spriteSize
+        mirrored: scene.flip
+        alpha: scene.catOpacity
     }
 
     Repeater {
         model: scene.bigtreeFronts
-        Image {
-            source: modelData.src
-            x: Math.round(modelData.x)
-            y: Math.round(modelData.y)
-            width: Math.round(modelData.w)
-            height: Math.round(modelData.h)
-            smooth: false
-            cache: false
+        ClippedImage {
+            pieces: modelData.clip
+            src: modelData.src
+            ix: modelData.x
+            iy: modelData.y
+            iw: Math.round(modelData.w)
+            ih: Math.round(modelData.h)
+            cached: false
         }
     }
 
@@ -192,14 +256,14 @@ Item {
 
     Repeater {
         model: scene.furnitureFront
-        Image {
-            source: scene.furnitureAtlas
-            sourceClipRect: Qt.rect(modelData.sx, modelData.sy, 32, modelData.h)
-            x: Math.round(modelData.x - width / 2)
-            y: Math.round(modelData.y - height)
-            width: scene.spriteSize
-            height: scene.spriteSize * modelData.h / 32
-            smooth: false
+        ClippedImage {
+            pieces: modelData.clip
+            src: scene.furnitureAtlas
+            part: Qt.rect(modelData.sx, modelData.sy, 32, modelData.h)
+            ix: modelData.x - scene.spriteSize / 2
+            iy: modelData.y - scene.spriteSize * modelData.h / 32
+            iw: scene.spriteSize
+            ih: scene.spriteSize * modelData.h / 32
         }
     }
 

@@ -62,6 +62,12 @@ def fly_path(t: float, i: int) -> tuple[float, float, bool]:
     return dx, dy, int(t * 24 + i) % 2 == 0
 
 
+def window_rects(world: World) -> list[Rect]:
+    """Die Fenster der Arbeitsumgebung (ohne die Kanten, die die Möbel selbst einbringen).
+    Hinter ihnen verschwindet ein Kratzbaum, der so eingestellt ist."""
+    return [w.rect for w in world.windows if w.stack < TREE_STACK]
+
+
 def on_tree(owner: str) -> bool:
     """Gehört die Kante (oder Wand) zu einem Kratzbaum - der Liegefläche des kleinen
     oder einer Fläche bzw. einem Pfeiler eines großen?"""
@@ -241,6 +247,7 @@ class Furniture:
         # große Kratzbäume: "bigtree" bleibt entfernt als Vorlage liegen, weitere ("bigtree2" ...) kommen dazu
         self.trees: dict[str, Tree] = {bigtree.KIND: Tree()}
         self.tree_wear = 0.0   # kleiner Kratzbaum: 0..1, so zerkratzt ist sein Sisal
+        self.tree_behind = False   # kleiner Kratzbaum: steht hinter den Fenstern
         self.food = 0   # Portionen im Napf
         # Von der Katze heruntergeschubst: liegt umgedreht, das Futter daneben, bis man ihn
         # mit der Maus wieder aufhebt
@@ -485,6 +492,28 @@ class Furniture:
         level = bigtree.wear_level(self.tree_wear)
         return TREE_FRAMES[level]
 
+    def behind(self, kind: str) -> bool:
+        """Verschwindet dieser Kratzbaum hinter Fenstern (und die Katze darin mit ihm)?"""
+        if kind in self.trees:
+            return self.trees[kind].behind
+        return kind == "tree" and self.tree_behind
+
+    def set_behind(self, kind: str, on: bool) -> None:
+        if kind in self.trees:
+            self.trees[kind].behind = on
+        elif kind == "tree":
+            self.tree_behind = on
+
+    def hidden_owner(self, owner: str) -> bool:
+        """Gehört die Kante (oder Wand) zu einem Kratzbaum hinter Fenstern? Wer darauf
+        steht, ist mit ihm verdeckt - sie ist ja im Baum."""
+        if owner == TREE_ID:
+            return self.tree_behind
+        if not owner.startswith(bigtree.BOARD_ID):
+            return False
+        t = self.trees.get(owner[len(bigtree.BOARD_ID):].split(":")[0])
+        return t is not None and t.behind
+
     def locked(self, kind: str) -> bool:
         return kind in self.trees and self.trees[kind].locked
 
@@ -648,7 +677,8 @@ class Furniture:
 
     def to_dict(self) -> dict:
         d: dict = {"food": self.food, "bowl_tipped": self.tipped, "spill": self.spill,
-                   "spill_side": self.spill_side, "tree_wear": round(self.tree_wear, 4)}
+                   "spill_side": self.spill_side, "tree_wear": round(self.tree_wear, 4),
+                   "tree_behind": self.tree_behind}
         for k, b in self.bodies.items():
             if not b.placed:
                 d[k] = None
@@ -697,6 +727,7 @@ class Furniture:
             f.spill = max(0, min(BOWL_PORTIONS, int(d.get("spill", 0))))
             f.spill_side = -1 if d.get("spill_side", 1) == -1 else 1
             f.tree_wear = max(0.0, min(1.0, float(d.get("tree_wear", 0.0))))
+            f.tree_behind = d.get("tree_behind") is True
         except (TypeError, ValueError):
             pass
         f.tipped = d.get("bowl_tipped") is True and f.bodies["bowl"].placed

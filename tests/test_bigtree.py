@@ -779,6 +779,121 @@ def test_overlay_does_not_drag_a_locked_tree(overlay):
     assert om._grabbed is None and moved == []
 
 
+# --- hinter Fenstern ---
+
+def hidden_tree_world(kind=KIND):
+    """Baum aufgestellt, danach geht ein Fenster davor auf."""
+    from taskbar_cat.world import Win, Rect
+    w = world()
+    f = Furniture()
+    if kind == KIND:
+        f.add_tree(1000, 100)
+        f.trees[KIND].resize(60, 200)
+    else:
+        f.place("tree", w, 1000, 100, 20)
+    settle(f, w, 10)
+    f.set_behind(kind, True)
+    before = f.usable(kind, w)
+    covered = world(Win("a", Rect(before[0] - 300, before[1] - 300, 600, 400), 5, False, False))
+    return covered, f
+
+
+def test_window_covers_the_tree_and_her_in_it():
+    from taskbar_cat.furniture import window_rects
+    from taskbar_cat.world import Rect, overlap, uncovered
+    w, f = hidden_tree_world()
+    ww = f.world_with(w, SPRITE)
+    board = next(p for p in ww.platforms if p.owner.startswith(BOARD_ID)
+                 and any(overlap(Rect(p.x1, p.y, p.x2 - p.x1, 2), r) for r in window_rects(w)))
+    c = cat_near(f, w)
+    c._land(ww, board)
+    c.x = (board.x1 + board.x2) / 2
+    assert c.hidden_behind(ww)                      # im Baum hinter dem Fenster
+    rest = uncovered(c.sprite_rect(), window_rects(w))
+    assert sum(p.w * p.h for p in rest) < c.sprite * c.sprite    # verdeckt gezeichnet
+    f.set_behind(KIND, False)
+    assert not c.hidden_behind(ww)                  # Baum wieder davor, sie auch
+
+
+def test_she_stays_hidden_until_she_is_past_the_window():
+    from taskbar_cat.furniture import window_rects
+    w, f = hidden_tree_world()
+    ww = f.world_with(w, SPRITE)
+    board = next(p for p in ww.platforms if p.owner.startswith(BOARD_ID))
+    c = cat_near(f, w)
+    c._land(ww, board)
+    assert c.hidden_behind(ww)
+    floor = next(p for p in ww.platforms if p.is_floor)      # sie springt herunter
+    c._land(ww, floor)
+    win = window_rects(w)[0]
+    c.x = win.x + 50
+    assert c.hidden_behind(ww)                   # noch hinter dem Fenster
+    c.x = win.x - SPRITE                         # am Rand vorbei
+    assert not c.hidden_behind(ww)
+
+
+def test_on_top_of_the_window_she_is_in_front_again():
+    w, f = hidden_tree_world()
+    ww = f.world_with(w, SPRITE)
+    c = cat_near(f, w)
+    c._land(ww, next(p for p in ww.platforms if p.owner.startswith(BOARD_ID)))
+    assert c.hidden_behind(ww)
+    c._land(ww, next(p for p in ww.platforms if p.owner == "a"))
+    assert not c.hidden_behind(ww)               # auf der Fensterkante steht sie davor
+
+
+def test_dragged_she_is_always_visible():
+    w, f = hidden_tree_world()
+    ww = f.world_with(w, SPRITE)
+    c = cat_near(f, w)
+    c._land(ww, next(p for p in ww.platforms if p.owner.startswith(BOARD_ID)))
+    assert c.hidden_behind(ww)
+    c.state = "dragged"
+    assert not c.hidden_behind(ww)
+
+
+def test_behind_survives_a_restart(tmp_path):
+    w, f = hidden_tree_world()
+    f.set_behind("tree", True)
+    path = tmp_path / "furniture.json"
+    storage.save(path, f)
+    g = storage.load_furniture(path)
+    assert g.behind(KIND) and g.behind("tree")
+
+
+@pytest.mark.parametrize("kind", [KIND, "tree"])
+def test_overlay_cuts_the_hidden_tree_into_pieces(overlay, kind):
+    """Hinter einem Fenster bleiben nur die Streifen daneben stehen - und keine Klicks."""
+    from taskbar_cat.world import Output, Rect, Win, World
+    om, ov = overlay
+    g = ov.screen.geometry()
+    out = [Output("x", Rect(0, 0, g.width(), g.height()), Rect(0, 0, g.width(), g.height()))]
+    w = World(out, [])
+    f = Furniture()
+    if kind == KIND:
+        f.add_tree(g.width() / 2, 50)
+        f.trees[KIND].resize(60, 120)
+    else:
+        f.place("tree", w, g.width() / 2, 50, 20)
+    settle(f, w, 10)
+    c = Cat(Needs(), random.Random(0))
+    c.furniture = f
+    c.spawn(w)
+    c.x = 10
+    om.render(c, f.world_with(w, c.sprite), 0, f)
+    whole = len(om._furn_parts.get(kind, om._furn_rects.get(kind, ())))
+    assert whole > 0
+    x, y = f.usable(kind, w)
+    covered = World(out, [Win("a", Rect(0, 0, g.width(), y - 40), 5, False, False)])
+    f.set_behind(kind, True)
+    om.render(c, f.world_with(covered, c.sprite), 0, f)
+    drawn = ov.scene.property("bigtrees" if kind == KIND else "furnitureBack")
+    pieces = [p for t in drawn for p in t["clip"]]
+    assert 0 < len(pieces) < sum(1 for _ in drawn) + 2        # zerschnitten, nicht am Stück
+    assert all(p["h"] > 0 and p["w"] > 0 for p in pieces)
+    assert len(om._furn_parts.get(kind, om._furn_rects.get(kind, ()))) != whole  # Maus zieht mit
+
+
 def test_overlay_draws_the_small_tree_with_its_ball(overlay):
     """Der kleine Kratzbaum: Bällchen wie am großen, Frame nach Verschleiß."""
     from taskbar_cat.furniture import TREE_TOY

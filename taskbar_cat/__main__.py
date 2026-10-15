@@ -206,12 +206,23 @@ def main(argv: list[str] | None = None) -> int:
         furniture.set_locked(kind, on)
         furniture_changed()
 
+    def toggle_behind(kind: str, on: bool) -> None:
+        furniture.set_behind(kind, on)
+        furniture_changed()
+
     furniture_menu = QMenu()
 
     def sisal(kind: str) -> None:
         """Eintrag "Neuen Sisal", nur solange etwas zu sehen ist."""
         furniture_menu.addAction("Neuen Sisal", guarded(lambda: new_sisal(kind))).setEnabled(
             furniture.frayed(kind))
+
+    def behind(kind: str) -> None:
+        """Eintrag "Hinter Fenstern", je Kratzbaum einzeln."""
+        a = furniture_menu.addAction("Hinter Fenstern", guarded(lambda on: toggle_behind(kind, on)))
+        a.setCheckable(True)
+        a.setChecked(furniture.behind(kind))
+        a.setToolTip("Fenster davor verdecken ihn - und die Katze, solange sie darin ist")
 
     def show_furniture_menu(kind: str, pos) -> None:
         furniture_menu.clear()
@@ -223,6 +234,7 @@ def main(argv: list[str] | None = None) -> int:
                 sub.addAction(v["name"], guarded(lambda _c=False, v=v: apply_variant(kind, v)))
             sub.setEnabled(bool(sub.actions()))
             sisal(kind)
+            behind(kind)
             lock = furniture_menu.addAction("Festgestellt",
                                             guarded(lambda on: toggle_lock(kind, on)))
             lock.setCheckable(True)
@@ -237,6 +249,7 @@ def main(argv: list[str] | None = None) -> int:
             return
         if kind == "tree":
             sisal(kind)
+            behind(kind)
             furniture_menu.addSeparator()
         if kind == "bowl":   # wie Linksklick aufs Tray-Icon; voll passt nichts mehr hinein
             full = not furniture.tipped and furniture.food >= BOWL_PORTIONS

@@ -6,9 +6,9 @@ import random
 from . import ufo
 from .bigtree import BASE_KEY, BOARD_ID, DOOR_W, cave_of, in_hammock, is_tree, reachable_toys
 from .config import Config
-from .furniture import ROLL_FRICTION, TREE_ID, Furniture, on_tree
+from .furniture import ROLL_FRICTION, TREE_ID, Furniture, on_tree, window_rects
 from .needs import Mood, Needs
-from .world import GRAVITY, Ceiling, Platform, Rect, Wall, World
+from .world import GRAVITY, Ceiling, Platform, Rect, Wall, World, overlap
 
 _DEFAULTS = Config()
 SPRITE = _DEFAULTS.sprite_px
@@ -149,6 +149,7 @@ class Cat:
         self._push_dir = 0      # Napf zu dieser Kante hin herunterschubsen (0 = nicht)
         self._nudges_left = 0
         self._post: tuple[str, int] | None = None   # (großer Kratzbaum, Pfeiler), an dem sie kratzt
+        self._hidden = False      # hinter den Fenstern, weil sie in einem Baum dahinter ist (oder war)
         self._toy: tuple[str, int] | None = None    # (großer Kratzbaum, Bällchen), nach dem sie schlägt
         self._swats_left = 0
         self._fly: int | None = None   # Fliege, die sie jagt (Furniture.fly_ids)
@@ -386,6 +387,32 @@ class Cat:
             self._set("beamed", math.inf)
             return
         self._behave(dt, world)
+
+    def sprite_rect(self) -> Rect:
+        """Ihr Sprite-Quadrat (global), wie das Overlay es zeichnet."""
+        return Rect(self.x - self.sprite / 2, self.y - self.sprite, self.sprite, self.sprite)
+
+    def hidden_behind(self, world: World) -> bool:
+        """Liegt sie gerade hinter den Fenstern? Auf einem Kratzbaum, der dahinter steht, ja -
+        sie ist ja im Baum. Verlässt sie ihn dort, bleibt sie verdeckt, bis sie am Fenster
+        vorbeigelaufen ist; steht sie oben darauf, ist sie davor. In der Hand oder im
+        Traktorstrahl ist sie immer zu sehen."""
+        if self.state in ("dragged", "beamed", "hidden"):
+            self._hidden = False
+            return False
+        owner = self.platform.owner if self.platform is not None else ""
+        if self.state == "climb" and self._wall is not None:
+            owner = self._wall.owner
+        if self.furniture.hidden_owner(owner):
+            self._hidden = True
+        elif on_tree(owner):          # auf einem Baum, der davor steht: wieder zu sehen
+            self._hidden = False
+        elif self._hidden:
+            on_window = self.platform is not None and not self.platform.is_floor
+            rect = self.sprite_rect()
+            self._hidden = not on_window and any(overlap(rect, r) is not None
+                                                 for r in window_rects(world))
+        return self._hidden
 
     def _ufo_arrives(self, dt: float) -> bool:
         """Zufall pro Tick; nur bei ruhiger Katze, wenn keins unterwegs ist und nicht kurz
