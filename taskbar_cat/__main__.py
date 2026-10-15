@@ -20,7 +20,7 @@ from .ui.collection import CollectionDialog
 from .ui.inventory import InventoryDialog
 from .ui.overlay import OverlayManager
 from .ui.settings import SettingsDialog
-from .ui.tray import CatTray
+from .ui.tray import CatTray, add_check
 from .world import Rect, World
 
 TICK_MS = 33
@@ -219,10 +219,9 @@ def main(argv: list[str] | None = None) -> int:
 
     def behind(kind: str) -> None:
         """Eintrag "Hinter Fenstern", je Kratzbaum einzeln."""
-        a = furniture_menu.addAction("Hinter Fenstern", guarded(lambda on: toggle_behind(kind, on)))
-        a.setCheckable(True)
-        a.setChecked(furniture.behind(kind))
-        a.setToolTip("Fenster davor verdecken ihn - und die Katze, solange sie darin ist")
+        add_check(furniture_menu, "Hinter Fenstern", furniture.behind(kind),
+                  lambda on: toggle_behind(kind, on),
+                  "Fenster davor verdecken ihn - und die Katze, solange sie darin ist")
 
     def show_furniture_menu(kind: str, pos) -> None:
         furniture_menu.clear()
@@ -235,11 +234,9 @@ def main(argv: list[str] | None = None) -> int:
             sub.setEnabled(bool(sub.actions()))
             sisal(kind)
             behind(kind)
-            lock = furniture_menu.addAction("Festgestellt",
-                                            guarded(lambda on: toggle_lock(kind, on)))
-            lock.setCheckable(True)
-            lock.setChecked(furniture.locked(kind))
-            lock.setToolTip("Mausrad und Ziehen verstellen ihn nicht mehr")
+            add_check(furniture_menu, "Festgestellt", furniture.locked(kind),
+                      lambda on: toggle_lock(kind, on),
+                      "Mausrad und Ziehen verstellen ihn nicht mehr")
             furniture_menu.addSeparator()
             b = furniture.bodies[kind]
             furniture_menu.addAction("Weiteren Kratzbaum aufstellen", guarded(

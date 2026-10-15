@@ -13,6 +13,19 @@ def _icons(fur: str) -> dict:
         64, 64, transformMode=Qt.TransformationMode.FastTransformation))) for m in sprites.MOODS}
 
 
+def add_check(menu: QMenu, text: str, checked: bool, on_toggle, tooltip: str = ""):
+    """Haken-Eintrag in ein Menü. Gemeldet wird über toggled: triggered gibt den Haken
+    an einen guarded()-Wrapper (der *args nimmt) nicht mit, der Rückruf bekäme nichts.
+    Erst setzen, dann verbinden - sonst meldet schon das Setzen eine Änderung."""
+    a = menu.addAction(text)
+    a.setCheckable(True)
+    a.setChecked(checked)
+    if tooltip:
+        a.setToolTip(tooltip)
+    a.toggled.connect(guarded(on_toggle))
+    return a
+
+
 class CatTray(QObject):
     feedRequested = pyqtSignal()
     petRequested = pyqtSignal()
