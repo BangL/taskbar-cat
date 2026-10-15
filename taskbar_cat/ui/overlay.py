@@ -28,6 +28,7 @@ class _Overlay:
         self.world: World | None = None
         self.furniture: tuple[list, list] = ([], [])
         self.bigtrees: list = []
+        self.fronts: list = []
 
     @property
     def origin(self) -> QPoint:
@@ -35,8 +36,10 @@ class _Overlay:
 
 
 class BigtreeImages(QQuickImageProvider):
-    """image://bigtree/<w>x<h>/<stand|hang>/<seed>: große Kratzbäume ohne Datei, damit das
-    Ziehen am Mausrad fließend neue Größen liefert."""
+    """image://bigtree/<w>x<h>/<stand|hang>/<seed>[/<Brett>:<Pixel>[/front]]: große Kratzbäume
+    ohne Datei, damit das Ziehen am Mausrad fließend neue Größen liefert; der optionale Teil
+    lässt eine Hängematte tiefer durchhängen, "front" liefert nur ihren Teil vor der Katze
+    (sprites.render_front)."""
 
     def __init__(self):
         super().__init__(QQmlImageProviderBase.ImageType.Image)
@@ -45,18 +48,23 @@ class BigtreeImages(QQuickImageProvider):
     def requestImage(self, id_: str, size):
         img = self._cache.get(id_)
         if img is None:
-            dims, mode, seed = (id_.split("/") + ["stand", "0"])[:3]
+            dims, mode, seed, load, part = (id_.split("/") + ["stand", "0", "", ""])[:5]
             w, h = (int(v) for v in dims.split("x"))
-            img = sprites.render_bigtree(w, h, mode == "hang", int(seed))
+            key, _, px = load.rpartition(":")
+            load = (key, int(px)) if key else None
+            front = sprites.render_front(w, h, mode == "hang", int(seed), load) \
+                if part == "front" and load is not None else None
+            img = front if front is not None else sprites.render_bigtree(w, h, mode == "hang", int(seed), load)
             if len(self._cache) > 64:
                 self._cache.clear()
             self._cache[id_] = img
         return img, img.size()
 
 
-def bigtree_source(tree: bigtree.Tree) -> str:
+def bigtree_source(tree: bigtree.Tree, load: tuple[str, int] | None = None) -> str:
     w, h = tree.size()
-    return f"image://bigtree/{w}x{h}/{'hang' if tree.hanging else 'stand'}/{tree.seed}"
+    src = f"image://bigtree/{w}x{h}/{'hang' if tree.hanging else 'stand'}/{tree.seed}"
+    return f"{src}/{load[0]}:{load[1]}" if load is not None and load[1] > 0 else src
 
 
 class OverlayManager(QObject):
@@ -94,7 +102,10 @@ class OverlayManager(QObject):
         self._furn_rects: dict[str, QRect] = {}  # global, sichtbare Möbel
         self._furn_parts: dict[str, list[QRect]] = {}   # große Kratzbäume: Teile ohne Lücken
         self._bigtrees: list[dict] = []          # global, links oben, fürs QML
+        self._fronts: list[dict] = []            # Hängematte vor der Katze (wie _bigtrees)
         self._furn_pos: dict[str, tuple[float, float]] = {}
+        self._lying: tuple[str, float] | None = None   # (Hängematte, seit wann sie drin liegt)
+        self._sink: tuple[str, str, int] | None = None  # (Baum, Brett, Pixel) Durchhängen
         self._grabbed: str | None = None         # "cat", Möbelart oder None
         self._grab_d = (0.0, 0.0)
         app = QGuiApplication.instance()
@@ -150,6 +161,7 @@ class OverlayManager(QObject):
         self._furn_pos = {}
         self._furn_parts = {}
         self._bigtrees = []
+        self._fronts = []
         if furniture is None:
             return []
         out = []
@@ -164,8 +176,17 @@ class OverlayManager(QObject):
                 left, top, s, lay = bigtree.geometry(tree, pos, size)
                 self._furn_parts[kind] = [QRect(round(r.x), round(r.y), round(r.w), round(r.h))
                                           for r in bigtree.parts(tree, pos, size)]
-                self._bigtrees.append({"kind": kind, "src": bigtree_source(tree),
+                load = self._sink[1:] if self._sink is not None and self._sink[0] == kind else None
+                src = bigtree_source(tree, load)
+                self._bigtrees.append({"kind": kind, "src": src,
                                        "x": left, "y": top, "w": lay.w * s, "h": lay.h * s})
+                behind = cat.behind()
+                for part in (load, (behind[1], 1) if behind is not None and behind[0] == kind else None):
+                    front = bigtree.front_part(lay, *part) if part is not None else None
+                    if front is not None:
+                        fx, fy, fw, fh = front
+                        self._fronts.append({"src": f"{bigtree_source(tree)}/{part[0]}:{part[1]}/front",
+                                             "x": left + fx * s, "y": top + fy * s, "w": fw * s, "h": fh * s})
                 continue
             s = size / sprites.FRAME
             bx, by, bw, bh = (v * s for v in BOX[kind])
@@ -178,22 +199,41 @@ class OverlayManager(QObject):
                 out.append((kind, x, y, "tree", None))
             elif kind == "yarn":   # Fadenlinien wechseln alle Achtel-Sprite beim Rollen
                 out.append((kind, x, y, ("yarn", "yarn_roll")[int(x / (size / 8)) % 2], None))
+            elif furniture.bowl_upside_down:
+                out.append((kind, x, y, "bowl_tipped", None))
+                if furniture.spill and furniture.tipped:
+                    out.append((kind, x + furniture.spill_side * sprites.SPILL_DX * s, y,
+                                f"spill_{min(furniture.spill, sprites.BOWL_LEVELS)}", None))
             else:
                 level = min(furniture.food, sprites.BOWL_LEVELS)
                 out.append((kind, x, y, f"bowl_{level}", None))
         return out
 
+    def _hammock_sink(self, cat: Cat, t: float) -> float:
+        """Liegt sie in einer Hängematte, hängt die langsam tiefer durch (self._sink) und
+        sie sinkt in den Stoff ein; liefert, wie viel tiefer (Bildschirmpixel) sie gezeichnet wird."""
+        owner = cat.hammock() if cat.visible else None
+        if owner is None:
+            self._lying = self._sink = None
+            return 0.0
+        if self._lying is None or self._lying[0] != owner:
+            self._lying = (owner, t)
+        px = bigtree.load_sag(t - self._lying[1])
+        self._sink = (*bigtree.hammock_of(owner), px)
+        return px * bigtree.CAT_SINK / bigtree.LOAD_SAG * cat.sprite / sprites.FRAME
+
     def render(self, cat: Cat, world: World, t: float, furniture: Furniture | None = None) -> None:
         anim, mood, frame, flip = cat.frame_key(t)
         sx, sy = sprites.frame_origin(anim, mood, frame)
         size = cat.sprite
+        sink = self._hammock_sink(cat, t)
         self._cat_rect = (QRect(round(cat.x - size / 2), round(cat.y - size), size, size)
                           .adjusted(-MASK_MARGIN, -MASK_MARGIN, MASK_MARGIN, MASK_MARGIN)
                           if cat.visible else QRect())
         furn = self._furniture_frames(cat, world, furniture)
         for ov in self._overlays.values():
             o = ov.origin
-            lx, ly = cat.x - o.x(), cat.y - o.y()
+            lx, ly = cat.x - o.x(), cat.y - o.y() + sink
             sprite = QRect(round(lx - size / 2), round(ly - size), size, size)
             screen = QRect(QPoint(0, 0), ov.screen.geometry().size())
             here = cat.visible and sprite.intersects(screen)
@@ -203,6 +243,7 @@ class OverlayManager(QObject):
             if here:
                 w.setProperty("catX", lx)
                 w.setProperty("catY", ly)
+                w.setProperty("catOpacity", cat.opacity)
                 w.setProperty("srcX", sx)
                 w.setProperty("srcY", sy)
                 w.setProperty("flip", flip)
@@ -222,6 +263,10 @@ class OverlayManager(QObject):
             if trees != ov.bigtrees:
                 ov.bigtrees = trees
                 w.setProperty("bigtrees", trees)
+            fronts = [{**t, "x": t["x"] - o.x(), "y": t["y"] - o.y()} for t in self._fronts]
+            if fronts != ov.fronts:
+                ov.fronts = fronts
+                w.setProperty("bigtreeFronts", fronts)
             local = [r.translated(-o.x(), -o.y()) for r in self._furn_rects.values()]
             local += [r.translated(-o.x(), -o.y()) for rs in self._furn_parts.values() for r in rs]
             if here:

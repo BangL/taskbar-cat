@@ -1,7 +1,7 @@
 """Möbel: Katzenbett, Napf, Wollknäuel und Kratzbaum, je eins, dazu beliebig viele große
 Kratzbäume (bigtree.py). Aufgestellt fallen sie auf die nächste Kante darunter (Boden oder
 Fenster), fahren mit dem Fenster mit und fallen herunter, wenn es verschwindet; sonst
-liegen sie im Inventar. Ein großer Kratzbaum, der an den oberen Rand gezogen wird, klebt
+liegen sie im Inventar (große Kratzbäume nicht). Ein großer Kratzbaum, der an den oberen Rand gezogen wird, klebt
 dort und hängt herab (rein, ohne Qt)."""
 import math
 import random
@@ -84,6 +84,11 @@ class Body:
 
     def kick(self, vx: float) -> None:
         if self.resting and self.bouncy:
+            self.vx = vx
+
+    def shove(self, vx: float) -> None:
+        """Über die Kante schieben (auch was nicht rollt, rutscht dann ein Stück)."""
+        if self.resting:
             self.vx = vx
 
     def step(self, world: World, dt: float, half: float) -> None:
@@ -198,9 +203,15 @@ class Body:
 class Furniture:
     def __init__(self):
         self.bodies = {k: Body(k in BOUNCY) for k in KINDS}
-        # große Kratzbäume: "bigtree" steht im Inventar, weitere ("bigtree2" ...) kommen dazu
+        # große Kratzbäume: "bigtree" bleibt entfernt als Vorlage liegen, weitere ("bigtree2" ...) kommen dazu
         self.trees: dict[str, Tree] = {bigtree.KIND: Tree()}
         self.food = 0   # Portionen im Napf
+        # Von der Katze heruntergeschubst: liegt umgedreht, das Futter daneben, bis man ihn
+        # mit der Maus wieder aufhebt
+        self.tipped = False
+        self.spill = 0          # verschüttete Portionen
+        self.spill_side = 1     # auf dieser Seite des Napfs liegt das Futter
+        self._shoved = False    # rutscht oder fällt gerade, weil sie ihn geschubst hat
         self._world_cache: tuple | None = None
         self._tree_cache: tuple | None = None   # (Schlüssel, Welt ohne, Welt mit Bäumen)
         self._world: World | None = None         # letzte Welt aus world_with
@@ -232,10 +243,16 @@ class Furniture:
             return None
         return pos
 
+    @property
+    def bowl_upside_down(self) -> bool:
+        """Umgedreht: liegt so da oder fällt gerade, nachdem sie ihn geschubst hat."""
+        return self.tipped or (self._shoved and self.bodies["bowl"].platform is None)
+
     def usable(self, kind: str, world: World) -> tuple[float, float] | None:
-        """Wie position, aber nur auf erlaubten Monitoren und solange es auf einer Kante steht."""
+        """Wie position, aber nur auf erlaubten Monitoren und solange es auf einer Kante steht
+        (der umgedrehte Napf taugt nicht zum Fressen)."""
         pos = self.position(kind, world)
-        if (pos is None or not self.bodies[kind].resting
+        if (pos is None or not self.bodies[kind].resting or (kind == "bowl" and self.tipped)
                 or world.output_at(pos[0], pos[1] - 1).name in world.forbidden_outputs):
             return None
         return pos
@@ -246,6 +263,8 @@ class Furniture:
     def put(self, kind: str, world: World, x: float, y: float, half: float) -> bool:
         """Mit der Maus halten (Mitte unten bei x, y), bis release es loslässt."""
         self.bodies[kind].hold(x, y)
+        if kind == "bowl":
+            self._right_bowl()   # aufgehoben: wieder richtig herum, das Verschüttete ist weg
         if kind in self.trees:   # Vorschau: hängend, solange er oben dran ist
             self.trees[kind].hanging = self._near_top(kind, world, self._sprite) is not None
         return True
@@ -275,7 +294,19 @@ class Furniture:
         self.bodies[kind].drop(x, y)
         return True
 
+    def _right_bowl(self) -> None:
+        self.tipped = self._shoved = False
+        self.spill = 0
+
+    def shove_bowl(self, vx: float) -> None:
+        """Die Katze schubst den Napf an; fällt er dabei herunter, landet er umgedreht."""
+        self.bodies["bowl"].shove(vx)
+        self._shoved = True
+        self.spill_side = 1 if vx >= 0 else -1
+
     def store(self, kind: str) -> None:
+        if kind == "bowl":
+            self._right_bowl()
         if kind in self.trees:
             self.trees[kind].hanging = False
         self.bodies[kind].store()
@@ -284,8 +315,8 @@ class Furniture:
 
     def add_tree(self, x: float, y: float, variant: dict | None = None,
                  rng: random.Random | None = None) -> str:
-        """Großen Kratzbaum bei (x, y) fallen lassen; ist der aus dem Inventar eingelagert,
-        kommt der, sonst ein weiterer mit eigenem Zufall. Liefert seine Art."""
+        """Großen Kratzbaum bei (x, y) fallen lassen; ist der erste entfernt,
+        kommt der wieder, sonst ein weiterer mit eigenem Zufall. Liefert seine Art."""
         if not self.placed(bigtree.KIND):
             kind = bigtree.KIND
         else:
@@ -302,7 +333,7 @@ class Furniture:
         return kind
 
     def remove_tree(self, kind: str) -> None:
-        """Der aus dem Inventar wird eingelagert, weitere verschwinden ganz."""
+        """Der erste wird nur weggeräumt (kommt beim nächsten wieder), weitere verschwinden ganz."""
         if kind == bigtree.KIND:
             self.store(kind)
         else:
@@ -407,6 +438,8 @@ class Furniture:
 
     def tick(self, world: World, dt: float, sprite: float) -> None:
         base = self._without_trees(world)
+        bowl = self.bodies["bowl"]
+        falling = bowl.placed and bowl.platform is None
         for kind, b in self.bodies.items():
             if kind in self.trees:
                 if self.trees[kind].hanging and not b.held:
@@ -414,6 +447,15 @@ class Furniture:
                 b.step(base, dt, self.half_width(kind, sprite))
             else:
                 b.step(world, dt, half_width(kind, sprite))
+        if self._shoved:
+            if bowl.held or not bowl.placed:
+                self._shoved = False
+            elif bowl.platform is not None and falling:   # heruntergefallen: umgedreht
+                self._shoved = False
+                self.tipped = True
+                self.spill, self.food = self.food, 0
+            elif bowl.platform is not None and not bowl.vx:   # an der Kante liegen geblieben
+                self._shoved = False
 
     def fill(self, world: World) -> bool:
         """Futter in den Napf kippen. False = kein erreichbarer Napf, direkt füttern."""
@@ -429,7 +471,8 @@ class Furniture:
         return True
 
     def to_dict(self) -> dict:
-        d: dict = {"food": self.food}
+        d: dict = {"food": self.food, "bowl_tipped": self.tipped, "spill": self.spill,
+                   "spill_side": self.spill_side}
         for k, b in self.bodies.items():
             if not b.placed:
                 d[k] = None
@@ -475,6 +518,9 @@ class Furniture:
                 f._hang(kind, t.top)
         try:
             f.food = max(0, min(BOWL_PORTIONS, int(d.get("food", 0))))
+            f.spill = max(0, min(BOWL_PORTIONS, int(d.get("spill", 0))))
+            f.spill_side = -1 if d.get("spill_side", 1) == -1 else 1
         except (TypeError, ValueError):
             pass
+        f.tipped = d.get("bowl_tipped") is True and f.bodies["bowl"].placed
         return f

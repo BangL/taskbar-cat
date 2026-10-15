@@ -5,6 +5,7 @@ import pytest
 
 from taskbar_cat import bigtree, storage
 from taskbar_cat.bigtree import BOARD_ID, KIND, Tree, layout
+from taskbar_cat import cat as cat_mod
 from taskbar_cat.cat import SPRITE, Cat
 from taskbar_cat.config import Config
 from taskbar_cat.furniture import Furniture
@@ -112,10 +113,10 @@ def test_variants_file(tmp_path):
     assert [v["name"] for v in storage.load_variants(path)] == ["A", "C"]
 
 
-def test_more_trees_and_back_to_inventory():
+def test_more_trees_and_removing():
     w = world()
     f = Furniture()
-    assert f.add_tree(500, 300) == KIND                # erst der aus dem Inventar
+    assert f.add_tree(500, 300) == KIND                # erst der erste
     k2 = f.add_tree(900, 300, rng=random.Random(1))
     assert k2 == KIND + "2" and f.trees[k2].seed != 0
     settle(f, w)
@@ -123,7 +124,7 @@ def test_more_trees_and_back_to_inventory():
     f.remove_tree(k2)
     assert k2 not in f.bodies and k2 not in f.trees
     f.remove_tree(KIND)
-    assert not f.placed(KIND) and KIND in f.trees     # nur eingelagert
+    assert not f.placed(KIND) and KIND in f.trees     # nur weggeräumt
 
 
 def test_trees_are_saved():
@@ -213,7 +214,16 @@ def test_every_board_is_a_walkable_edge():
     w, f = tree_world()
     ww = f.world_with(w, SPRITE)
     owners = {p.owner for p in ww.platforms if p.owner.startswith(BOARD_ID)}
-    assert owners == {f"{BOARD_ID}{KIND}:{b.key}" for b in f.trees[KIND].layout().boards}
+    assert owners == {f"{BOARD_ID}{KIND}:{b.key}" for b in f.trees[KIND].layout().boards} | \
+        {f"{BOARD_ID}{KIND}:{bigtree.BASE_KEY}"}
+
+
+def test_the_base_is_walkable_but_not_when_hanging():
+    w, f = tree_world()
+    base = next(p for p in f.world_with(w, SPRITE).platforms if p.owner.endswith(":" + bigtree.BASE_KEY))
+    assert base.y == pytest.approx(1080 - (bigtree.BASE_H + 1) * S) and base.x2 - base.x1 > 40 * S
+    w, f = tree_world(hanging=True)
+    assert not any(p.owner.endswith(":" + bigtree.BASE_KEY) for p in f.world_with(w, SPRITE).platforms)
 
 
 def test_posts_are_walls_up_to_their_boards():
@@ -259,7 +269,9 @@ def cat_near(f, w, x=800, seed=0, **needs):
 def test_cat_climbs_posts_and_uses_the_boards():
     w, f = tree_world()
     seen, anims, boards = set(), set(), set()
-    for seed in range(3):
+    for seed in range(8):     # die Höhle kostet Zeit, also notfalls ein paar Katzen mehr
+        if {"climb", "scratch"} <= seen and "climb_post" in anims and len(boards) >= 3:
+            break
         c = cat_near(f, w, seed=seed)
         for i in range(int(180 / DT)):
             c.tick(DT, f.world_with(w, SPRITE), False)
@@ -317,6 +329,125 @@ def test_rested_cat_lounges_in_the_hammock_for_a_while():
     assert lounged >= 3
 
 
+
+def test_hammock_sags_under_the_cat():
+    w, f = hammock_tree()
+    ww = f.world_with(w, SPRITE)
+    hm = next(p for p in ww.platforms if bigtree.in_hammock(p.owner))
+    c = cat_near(f, w, energy=40)
+    c.x = (hm.x1 + hm.x2) / 2
+    c._land(ww, hm)
+    c._choose(ww)
+    kind, key = bigtree.hammock_of(c.hammock())
+    assert kind in f.trees and any(b.key == key and b.style == "hammock" for b in f.trees[kind].layout().boards)
+    assert [bigtree.load_sag(t) for t in (0, bigtree.LOAD_TIME / 2, 5)] == [0, bigtree.LOAD_SAG // 2,
+                                                                            bigtree.LOAD_SAG]
+    c._set("walk", 1)
+    assert c.hammock() is None
+
+
+def cave_tree():
+    """Stehender Baum mit Höhle (gesucht, da der Aufbau zufällig ist)."""
+    for w_, h_ in SIZES:
+        if bigtree.cave_of(layout(w_, h_)) is not None:
+            return tree_world(size=(w_, h_))
+    raise AssertionError("kein Baum mit Höhle")
+
+
+def run_until(c, f, w, states, seconds=30.0):
+    for _ in range(int(seconds / DT)):
+        c.tick(DT, f.world_with(w, SPRITE), False)
+        if c.state in states:
+            return True
+    return False
+
+
+def test_caves_fit_the_cat_and_hanging_trees_have_none():
+    some = False
+    for w_, h_ in SIZES:
+        assert bigtree.cave_of(layout(w_, h_, True)) is None
+        b = bigtree.cave_of(layout(w_, h_))
+        if b is not None:
+            some = True
+            assert b.x2 - b.x1 >= bigtree.CAVE_MIN_W
+    assert some
+
+
+def test_sometimes_her_butt_sticks_out_instead():
+    w, f = cave_tree()
+    states = set()
+    for seed in range(40):
+        c = cat_near(f, w, seed=seed)
+        c._seek_cave(KIND, "peek", f.world_with(w, SPRITE))
+        assert run_until(c, f, w, ("cave", "cave_butt"))
+        states.add(c.state)
+        if c.state == "cave_butt":
+            assert c.frame_key(0)[0] == "cave_butt" and c.behind() is None
+            c.tick(DT, f.world_with(w, SPRITE), False, cursor=(c.x + 40, c.y - 20))
+            assert c.state == "cave_butt"                    # sieht die Maus ja nicht
+            assert run_until(c, f, w, ("cave_out",), 11)
+    assert states == {"cave", "cave_butt"}
+
+
+def test_cat_goes_into_the_cave_peeks_and_comes_out():
+    w, f = cave_tree()
+    c = cat_near(f, w)
+    ww = f.world_with(w, SPRITE)
+    door, _ = c._cave_door(ww, KIND)
+    assert c._seek_cave(KIND, "peek", ww)
+    assert run_until(c, f, w, ("cave_in",))
+    assert c.x == pytest.approx(door) and c.behind() == (KIND, "cave") and c.opacity > 0.9
+    assert run_until(c, f, w, ("cave",), 2)
+    assert c.behind() is None and c.frame_key(0)[0] == "cave_peek"
+    looks = set()
+    for _ in range(int(5 / DT)):
+        c.tick(DT, f.world_with(w, SPRITE), False)
+        looks.add(c.facing)
+    assert looks == {-1, 1}                                    # schaut sich um
+    assert run_until(c, f, w, ("cave_out",), 30) and c.frame_key(0)[0] == "crawl"
+    for _ in range(int(1 / DT)):
+        c.tick(DT, f.world_with(w, SPRITE), False)
+    assert c.state not in cat_mod.CAVE_STATES and c._cave is None
+
+
+def test_mouse_at_the_door_makes_her_duck_or_jump_out():
+    w, f = cave_tree()
+    reactions = set()
+    for seed in range(10):
+        c = cat_near(f, w, seed=seed)
+        ww = f.world_with(w, SPRITE)
+        c._seek_cave(KIND, "peek", ww)
+        assert run_until(c, f, w, ("cave", "cave_butt"))
+        if c.state == "cave_butt":     # selten verkehrt herum, dann sieht sie die Maus nicht
+            continue
+        c.tick(DT, f.world_with(w, SPRITE), False, cursor=(c.x + 40, c.y - 20))
+        reactions.add(c.state)
+    assert reactions == {"cave_duck", "cave_out"}
+
+
+def test_tired_cat_sleeps_in_the_cave():
+    w, f = cave_tree()
+    slept = 0
+    for seed in range(10):
+        c = cat_near(f, w, seed=seed, energy=10)
+        c._choose(f.world_with(w, SPRITE))
+        if c._cave_plan == "sleep" and run_until(c, f, w, ("cave_sleep",)):
+            slept += 1
+            assert c._activity() == "sleep" and c.frame_key(0)[0] == "cave_sleep"
+            c.needs.energy = 85
+            assert run_until(c, f, w, ("cave",), 1)
+    assert slept >= 2
+
+
+def test_tree_moved_away_she_leaves_the_cave():
+    w, f = cave_tree()
+    c = cat_near(f, w)
+    c._seek_cave(KIND, "peek", f.world_with(w, SPRITE))
+    assert run_until(c, f, w, ("cave", "cave_butt"))
+    f.resize_tree(KIND, bigtree.MIN_W, bigtree.MIN_H)        # Höhle verschwindet
+    c.tick(DT, f.world_with(w, SPRITE), False)
+    assert c.state not in cat_mod.CAVE_STATES
+
 def test_no_bigtree_no_extra_dice():
     """Ohne aufgestellten großen Kratzbaum bleibt das übrige Verhalten gleich."""
     w = world()
@@ -340,6 +471,26 @@ def test_rendered_tree_matches_its_layout(qapp):
             assert img.pixelColor(x, (y1 + y2) // 2) == sprites.SISAL or \
                 img.pixelColor(x, (y1 + y2) // 2) == sprites.SISAL_DARK
 
+
+
+def test_loaded_hammock_hangs_lower(qapp):
+    from taskbar_cat import sprites
+    for (w_, h_) in SIZES:
+        hm = next((b for b in layout(w_, h_).boards if b.style == "hammock"), None)
+        if hm is not None:
+            break
+    x = (hm.x1 + hm.x2) // 2
+    def bottom(img):
+        return max(y for y in range(hm.y, img.height()) if img.pixelColor(x, y) == sprites.HAMMOCK)
+    free = sprites.render_bigtree(w_, h_)
+    loaded = sprites.render_bigtree(w_, h_, load=(hm.key, bigtree.LOAD_SAG))
+    assert bottom(loaded) - bottom(free) >= bigtree.LOAD_SAG - 1
+    lay = layout(w_, h_)
+    assert bigtree.front_part(lay, hm.key, 0) is None
+    fx, fy, fw, fh = bigtree.front_part(lay, hm.key, bigtree.LOAD_SAG)
+    assert fx == hm.x1 and fy < hm.y <= fy + fh and fy + fh <= lay.h
+    front = loaded.copy(fx, fy, fw, fh)     # die ganze Matte liegt im Ausschnitt
+    assert bottom(loaded) - fy < front.height()
 
 def test_collection_dialog(qapp, tmp_path):
     from taskbar_cat.ui.collection import CollectionDialog, rename
@@ -411,3 +562,37 @@ def test_overlay_draws_trees_and_takes_the_wheel(overlay):
                                                      Qt.KeyboardModifier.NoModifier,
                                                      Qt.ScrollPhase.NoScrollPhase, False))
     assert asked == [(k2, 0.0, 120.0)]
+
+
+def test_overlay_hides_her_behind_the_cave_wall(overlay):
+    from taskbar_cat import sprites
+    from taskbar_cat.world import Output, Rect, World
+    om, ov = overlay
+    g = ov.screen.geometry()
+    w = World([Output("x", Rect(0, 0, g.width(), g.height()), Rect(0, 0, g.width(), g.height()))], [])
+    size = next((s for s in SIZES if bigtree.cave_of(layout(*s)) is not None))
+    f = Furniture()
+    f.trees[KIND] = Tree(*size)
+    f.add_tree(g.width() / 2, 100)
+    settle(f, w)
+    c = Cat(Needs(), random.Random(0))
+    c.furniture = f
+    c.spawn(w)
+    ww = f.world_with(w, c.sprite)
+    x, q = c._cave_door(ww, KIND)
+    c.x = x
+    c._land(ww, q)
+    c._cave = KIND
+    c._set("cave_in", cat_mod.CAVE_IN_S / 2)
+    om.render(c, ww, 0, f)
+    fronts = ov.window.property("bigtreeFronts")
+    assert [fr["src"].endswith("/cave:1/front") for fr in fronts] == [True]
+    assert ov.window.property("catOpacity") == pytest.approx(0.5)
+    wall = sprites.render_front(*size, False, 0, ("cave", 1))
+    b = bigtree.cave_of(layout(*size))
+    assert wall.pixelColor(wall.width() // 2, wall.height() - 3).alpha() == 0    # Tür offen
+    assert wall.pixelColor(1, wall.height() - 3) == sprites.CAVE                 # Wand daneben
+    assert (wall.width(), wall.height()) == (b.x2 - b.x1, b.sag)
+    c._set("cave", 5)
+    om.render(c, ww, 0, f)
+    assert ov.window.property("bigtreeFronts") == [] and ov.window.property("catOpacity") == 1

@@ -20,6 +20,7 @@ Window {
     property url atlas
     property real catX: 0
     property real catY: 0
+    property real catOpacity: 1
     property int srcX: 0
     property int srcY: 0
     property bool flip: false
@@ -32,6 +33,8 @@ Window {
     property var furnitureFront: []
     // Große Kratzbäume: je {kind, src (image://bigtree/...), x, y, w, h} (lokal, links oben)
     property var bigtrees: []
+    // Vor der Katze: durchhängende Hängematte oder Höhlenwand: {src (.../front), x, y, w, h}
+    property var bigtreeFronts: []
     // UFO-Easter-Egg (Mitte der Untertasse, Strahl von beamTop bis beamBottom)
     property url ufoSource
     property url beamSource
@@ -117,7 +120,21 @@ Window {
         height: win.spriteSize
         smooth: false
         mirror: win.flip
+        opacity: win.catOpacity
         visible: win.catVisible
+    }
+
+    Repeater {
+        model: win.bigtreeFronts
+        Image {
+            source: modelData.src
+            x: Math.round(modelData.x)
+            y: Math.round(modelData.y)
+            width: Math.round(modelData.w)
+            height: Math.round(modelData.h)
+            smooth: false
+            cache: false
+        }
     }
 
     Repeater {

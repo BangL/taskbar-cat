@@ -61,3 +61,9 @@ def test_bowl_levels_differ(qapp):
         x0, y0 = sprites.furniture_origin(f"bowl_{n}")
         frames.append([img.pixel(x0 + x, y0 + y) for x in range(sprites.FRAME) for y in range(sprites.FRAME)])
     assert len({tuple(f) for f in frames}) == len(frames)
+
+
+def test_big_trees_are_not_in_inventory(qapp):
+    """Die gibt es nur übers Tray-Menü "Große Kratzbäume"."""
+    from taskbar_cat.bigtree import KIND
+    assert KIND not in InventoryDialog(Furniture())._buttons

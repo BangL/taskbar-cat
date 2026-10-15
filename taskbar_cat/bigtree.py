@@ -16,9 +16,10 @@ from dataclasses import dataclass
 
 from .world import Rect, Wall, Win
 
-KIND = "bigtree"           # der erste Baum (Inventar); weitere heißen bigtree2, bigtree3, ...
+KIND = "bigtree"           # der erste Baum (bleibt entfernt erhalten); weitere heißen bigtree2, bigtree3, ...
 NAME = "Großer Kratzbaum"
 BOARD_ID = "furniture:bigtree:"
+BASE_KEY = "base"          # Kante des Sockels (stehend)
 STACK = (1 << 30) + 1      # über allen Fenstern und dem kleinen Kratzbaum
 MIN_W, MAX_W = 24, 128
 MIN_H, MAX_H = 40, 400
@@ -33,6 +34,11 @@ MIN_DY = 14                # Mindestabstand übereinanderliegender Flächen
 MIN_WALL = 40              # kürzere Kletterstrecken lohnen nicht (wie world.MIN_PIECE)
 TOY_COLORS = 5             # Farbindex der Bällchen, Farben in sprites
 WHEEL_STEP = 1.06          # Größenfaktor je Mausrad-Rastung (120)
+LOAD_SAG = 4               # so viel tiefer hängt eine Hängematte, in der die Katze liegt
+LOAD_TIME = 0.4            # so lange (s) sinkt sie ein
+CAT_SINK = 6               # so tief liegt die Katze dann im Stoff (Matte davor)
+DOOR_W = 12                # Tür der Höhle: ihr Kopf passt hindurch
+CAVE_MIN_W = 28            # schmaler wird keine Höhle (geduckt ist sie so lang)
 
 
 def is_tree(kind) -> bool:
@@ -161,19 +167,15 @@ def _layout(W: int, H: int, hanging: bool, seed: int) -> Layout:
                 if r.random() < 0.45:
                     wanted.append((x1, x2, y + BOARD_H))
 
-    # Höhle an einem zufälligen Pfeiler: stehend auf dem Sockel, hängend frei schwebend
-    if levels >= 2 and gap >= 26 and r.random() < 0.7:
+    # Höhle an einem zufälligen Pfeiler auf dem Sockel (hängende Bäume haben keine)
+    if not hanging and levels >= 2 and gap >= 26 and r.random() < 0.7:
         i = r.randrange(n)
-        width = r.randint(16, 24)
+        width = r.randint(28, 36)             # die Katze passt hinein (geduckt 28 px)
         side = r.choice((-1, 1))
         cx1, cx2 = (xs[i] + 3, xs[i] + 3 + width) if side > 0 else (xs[i] - 3 - width, xs[i] - 3)
         cx1, cx2 = max(1, cx1), min(W - 1, cx2)
-        depth = r.randint(12, 16)
-        if hanging:
-            y = pick_y(lower - r.randint(1, max(1, levels - 1)) * gap, 0.2, cx1, cx2, (i,))
-            if y is not None and y + depth < lower - 6 and free(cx1, cx2, y + depth):
-                boards.append(Board("cave", cx1, cx2, y, "cave", depth, ((i, side),)))
-        elif cx2 - cx1 >= MIN_BOARD and free(cx1, cx2, base_y - depth):
+        depth = r.randint(16, 19)
+        if cx2 - cx1 >= CAVE_MIN_W and free(cx1, cx2, base_y - depth):
             boards.append(Board("cave", cx1, cx2, base_y - depth, "cave", depth, ((i, side),)))
 
     # Bällchen: nicht vor einem Pfeiler, Faden endet über dem nächsten Hindernis darunter
@@ -270,11 +272,15 @@ def geometry(tree: Tree, pos: tuple[float, float], sprite: float) -> tuple[float
 
 
 def structures(kind: str, tree: Tree, pos, sprite: float) -> tuple[list[Win], list[Wall]]:
-    """Kanten (jede Fläche) und Wände (Pfeiler, an denen sie zu einer Fläche hochklettert).
-    Eine Wand reicht vom Ende des Pfeilers bis zur Fläche und gehört zu deren Kante:
-    oben angekommen, zieht sich die Katze dorthin hoch."""
+    """Kanten (jede Fläche, stehend auch der Sockel) und Wände (Pfeiler, an denen sie zu einer
+    Fläche hochklettert). Eine Wand reicht vom Ende des Pfeilers bis zur Fläche und gehört zu
+    deren Kante: oben angekommen, zieht sich die Katze dorthin hoch."""
     left, top, s, lay = geometry(tree, pos, sprite)
     wins, walls = [], []
+    if not lay.hanging:   # hängend ist der Sockel die Deckenplatte am oberen Rand
+        wins.append(Win(f"{BOARD_ID}{kind}:{BASE_KEY}",
+                        Rect(left + s, top + lay.base_y * s, (lay.w - 2) * s, BASE_H * s),
+                        STACK, False, False, True))
     for b in lay.boards:
         owner = f"{BOARD_ID}{kind}:{b.key}"
         wins.append(Win(owner, Rect(left + b.x1 * s, top + b.y * s, (b.x2 - b.x1) * s, BOARD_H * s),
@@ -307,3 +313,34 @@ def parts(tree: Tree, pos, sprite: float) -> list[Rect]:
 
 def in_hammock(owner: str | None) -> bool:
     return bool(owner) and owner.startswith(BOARD_ID) and ":h" in owner[len(BOARD_ID):]
+
+
+def hammock_of(owner: str | None) -> tuple[str, str] | None:
+    """(Baumart, Brett) der Hängematte zu einem Kantennamen."""
+    if not in_hammock(owner):
+        return None
+    kind, key = owner[len(BOARD_ID):].split(":", 1)
+    return kind, key
+
+
+def load_sag(lying: float) -> int:
+    """Zusätzliches Durchhängen, nachdem sie so lange (s) in der Hängematte liegt."""
+    return min(LOAD_SAG, max(0, int(lying / LOAD_TIME * LOAD_SAG)))
+
+
+def front_part(lay: Layout, key: str, px: int) -> tuple[int, int, int, int] | None:
+    """Ausschnitt (x, y, w, h) des Baumbilds, der vor der Katze liegt: die durchhängende
+    Matte (darüber ist das Bild leer, also bleibt sie von der Mitte aufwärts sichtbar) oder
+    die Wand der Höhle (ohne Tür, sprites.render_front), hinter der sie verschwindet."""
+    b = next((b for b in lay.boards if b.key == key and b.style in ("hammock", "cave")), None)
+    if b is None or px <= 0:
+        return None
+    if b.style == "cave":
+        return b.x1, b.y, b.x2 - b.x1, b.sag
+    y = b.y - 3
+    return b.x1, y, b.x2 - b.x1, min(lay.h - y, b.sag + px + 5)
+
+
+def cave_of(lay: Layout) -> Board | None:
+    """Höhle (nur stehende Bäume haben eine, sie steht auf dem Sockel)."""
+    return next((b for b in lay.boards if b.style == "cave"), None)

@@ -1,14 +1,16 @@
-"""Inventar: Möbel aufstellen oder einlagern (je eins, siehe furniture.KINDS)."""
+"""Inventar: Möbel aufstellen oder einlagern (je eins, siehe furniture.KINDS). Große
+Kratzbäume fehlen hier, die gibt es übers Tray-Menü "Große Kratzbäume"."""
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import (QDialog, QDialogButtonBox, QGridLayout, QLabel, QPushButton,
                              QVBoxLayout, QWidget)
 
-from .. import sprites
+from .. import bigtree, sprites
 from ..furniture import BOWL_PORTIONS, KINDS, NAMES, Furniture
 from ..guard import guarded
 
 ICON_PX = 64
+INVENTORY_KINDS = tuple(k for k in KINDS if not bigtree.is_tree(k))
 
 
 class InventoryDialog(QDialog):
@@ -25,7 +27,7 @@ class InventoryDialog(QDialog):
         layout = QVBoxLayout(self)
         grid = QGridLayout()
         layout.addLayout(grid)
-        for row, kind in enumerate(KINDS):
+        for row, kind in enumerate(INVENTORY_KINDS):
             icon = QLabel()
             img = sprites.furniture_icon(kind)   # gleicher Maßstab für alle, hohe werden höher
             icon.setPixmap(QPixmap.fromImage(img.scaled(
@@ -55,10 +57,12 @@ class InventoryDialog(QDialog):
         self.refresh()
 
     def refresh(self) -> None:
-        for kind in KINDS:
+        for kind in INVENTORY_KINDS:
             placed = self._furniture.placed(kind)
             text = "aufgestellt" if placed else "im Inventar"
-            if kind == "bowl":
+            if kind == "bowl" and self._furniture.tipped:
+                text += ", umgekippt (mit der Maus aufheben)"
+            elif kind == "bowl":
                 text += f", Futter {self._furniture.food}/{BOWL_PORTIONS}"
             self._status[kind].setText(text)
             self._buttons[kind].setText("Einlagern" if placed else "Aufstellen")

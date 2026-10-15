@@ -4,9 +4,9 @@ import math
 import random
 
 from . import ufo
-from .bigtree import BOARD_ID, in_hammock, is_tree
+from .bigtree import BASE_KEY, BOARD_ID, DOOR_W, cave_of, in_hammock, is_tree
 from .config import Config
-from .furniture import TREE_ID, Furniture
+from .furniture import ROLL_FRICTION, TREE_ID, Furniture
 from .needs import Mood, Needs
 from .world import GRAVITY, Ceiling, Platform, Rect, Wall, World
 
@@ -48,12 +48,29 @@ BIGTREE_NEAR = 400       # px neben dem großen Kratzbaum: in seiner Nähe
 BIGTREE_HOP = 0.6        # auf dem großen Kratzbaum: weiter zur nächsten Fläche
 HAMMOCK_REST = ("idle_sit", "sleep", "purr", "groom")
 HAMMOCK_SWAY_FPS = 3     # langsamer als die übrigen Animationen: schaukeln
+# Höhle des großen Kratzbaums: hinein (verblasst), Kopf rausstrecken / wegducken / schlafen, raus
+CAVE_STATES = ("cave_in", "cave", "cave_duck", "cave_sleep", "cave_butt", "cave_out")
+CAVE_IN_S = 0.8
+CAVE_OUT_S = 0.5
+CAVE_STAY = (8.0, 25.0)  # so lange schaut sie heraus
+CAVE_LOOK_S = 1.5        # im Schnitt so oft schaut sie in die andere Richtung
+CAVE_SPOOK = 150         # Maus so nah an der Tür: wegducken oder herausspringen
+P_CAVE = 0.3             # Anteil der Baumbesuche, die in die Höhle führen
+P_CAVE_SLEEP = 0.5       # müde und Höhle in der Nähe: lieber dort schlafen als im Bett
+P_CAVE_BUTT = 0.08       # selten verkehrt herum drin: der Hintern schaut heraus
+# Napf nah an einer Kante (Fenster, Kratzbaum): ab und an schubst sie ihn herunter
+P_BOWL_PUSH = 0.25       # je Entscheidung, solange er so steht
+BOWL_EDGE = 1.0          # Sprites: so nah steht der Napf an der Kante
+BOWL_NUDGES = (1, 3)     # so oft stupst sie, der letzte Stups wirft ihn hinunter
+BOWL_NUDGE_S = 0.6
 
 AIRBORNE = ("jump", "fall", "thrown")
 CLINGING = ("climb", "hang")
-NO_PLAY = ("sleep", "dragged", "climb", "hang", "hidden", "eat", "sick_lie", "vomit", "bat")
+NO_PLAY = ("sleep", "dragged", "climb", "hang", "hidden", "eat", "sick_lie", "vomit", "bat", "nudge") + CAVE_STATES
 ANIM_FOR_STATE = {"chase": "walk", "approach": "walk", "flee": "walk", "seek": "walk", "idle_sit": "sit", "sick_lie": "lie", "thrown": "fall", "hidden": "sit",
-                  "beamed": "dragged", "abducted": "sit"}
+                  "beamed": "dragged", "abducted": "sit", "cave_in": "cave_in", "cave": "cave_peek",
+                  "cave_duck": "cave_duck", "cave_sleep": "cave_sleep", "cave_butt": "cave_butt",
+                  "cave_out": "crawl", "nudge": "bat"}
 MOOD_NAME = {Mood.NORMAL: "normal", Mood.SAD: "sad", Mood.SICK: "sick"}
 # Unter einer niedrigen Fensterkante passt sie nicht aufrecht durch
 CRAMPED_ANIM = {"walk": "crawl", "sit": "lie", "groom": "lie"}
@@ -112,6 +129,11 @@ class Cat:
         self._bats_left = 0
         self._waiting = False   # "seek", aber das Knäuel fliegt gerade: sitzen und zuschauen
         self._post_x = 0.0      # Pfeiler des großen Kratzbaums, an dem sie kratzen will
+        self._cave: str | None = None        # großer Kratzbaum, in dessen Höhle sie ist
+        self._cave_plan: str | None = None   # auf dem Weg dorthin: "peek" oder "sleep"
+        self._spooked = False   # Maus war schon nah an der Tür (nur einmal reagieren)
+        self._push_dir = 0      # Napf zu dieser Kante hin herunterschubsen (0 = nicht)
+        self._nudges_left = 0
 
     # --- Zustand von außen ---
 
@@ -122,6 +144,20 @@ class Cat:
     @property
     def visible(self) -> bool:
         return self.state not in ("hidden", "abducted") and not self.paused
+
+    @property
+    def opacity(self) -> float:
+        """Durch die Tür der Höhle verblasst sie im Dunkeln bzw. taucht wieder auf."""
+        if self.state == "cave_in":
+            return max(0.0, min(1.0, self._timer / CAVE_IN_S))
+        if self.state == "cave_out":
+            return 1.0 - max(0.0, min(1.0, self._timer / CAVE_OUT_S))
+        return 1.0
+
+    def behind(self) -> tuple[str, str] | None:
+        """(Baumart, Brett), hinter dessen Wand sie gerade ist: beim Hineinschlüpfen
+        sieht man sie nur durch die Tür."""
+        return (self._cave, "cave") if self.state == "cave_in" and self._cave else None
 
     @property
     def in_bed(self) -> bool:
@@ -161,13 +197,15 @@ class Cat:
         if self.abducted:
             return
         self.needs.pet(self.cfg)
-        if self.grounded:
+        if self.grounded and self.state not in CAVE_STATES:   # in der Höhle bleibt sie
             self._set("purr", 1.5)
 
     def go_sleep(self) -> None:
         """Ins Bett, falls eins erreichbar ist, sonst gleich hier."""
         if self.grounded and not self.abducted:
-            if self._world is None or not self._seek("bed", self._world):
+            if self.state in ("cave", "cave_duck"):
+                self._set("cave_sleep", math.inf)
+            elif self._world is None or not self._seek("bed", self._world):
                 self._set("sleep", math.inf)
 
     def call_to_floor(self) -> None:
@@ -237,6 +275,12 @@ class Cat:
         self._ceiling = c
         self._leap("ceiling", (tx - self.x) / t, vy0)
 
+    def hammock(self) -> str | None:
+        """Kante der Hängematte, in der sie gerade liegt."""
+        if self.state in HAMMOCK_REST and self.platform is not None and in_hammock(self.platform.owner):
+            return self.platform.owner
+        return None
+
     def frame_key(self, t: float) -> tuple[str, str, int, bool]:
         anim = ANIM_FOR_STATE.get(self.state, self.state)
         frame = int(t * ANIM_FPS)
@@ -246,8 +290,7 @@ class Cat:
             anim = "sit"
         elif self.state == "climb" and self._wall is not None and self._wall.owner.startswith(BOARD_ID):
             anim = "climb_post"   # umgreift den Pfeiler des großen Kratzbaums
-        elif (self.state in HAMMOCK_REST and self.platform is not None
-              and in_hammock(self.platform.owner)):
+        elif self.hammock() is not None:
             anim = "hammock_sleep" if self.state == "sleep" else "hammock"
             frame = int(t * HAMMOCK_SWAY_FPS)
         if self._cramped:
@@ -259,7 +302,7 @@ class Cat:
     def _activity(self) -> str:
         if self.state in AIRBORNE + CLINGING + ("walk", "approach", "dragged", "chase", "crouch", "flee", "seek", "bat"):
             return "active"
-        return "sleep" if self.state == "sleep" else "rest"
+        return "sleep" if self.state in ("sleep", "cave_sleep") else "rest"
 
     def tick(self, dt: float, world: World, locked: bool,
              cursor: tuple[float, float] | None = None, wiggling: bool = False) -> None:
@@ -445,6 +488,9 @@ class Cat:
         elif self.state == "sick_lie":
             self._choose(world)
 
+        if self.state in CAVE_STATES:
+            self._in_cave(dt, world)
+            return
         if self._play_left > 0 and self._cursor is not None and self.state not in NO_PLAY + ("purr", "cheer"):
             self._play(dt, world)
             return
@@ -474,6 +520,8 @@ class Cat:
                 self._set("idle_sit", 60)
             elif self.state == "vomit":
                 self._set("groom", self.rng.uniform(4, 7))   # danach macht sie sich sauber
+            elif self.state == "nudge":
+                self._after_nudge(world)
             elif self.state == "bat":   # hinterher oder erst mal verschnaufen
                 if self._bats_left <= 0 or not self._seek("yarn", world):
                     self._set("idle_sit", self.rng.uniform(3, 10))
@@ -700,6 +748,8 @@ class Cat:
 
     def _choose(self, world: World) -> None:
         self._goal = None
+        self._cave = self._cave_plan = None
+        self._push_dir = 0
         if self.platform is not None and in_hammock(self.platform.owner) and self.needs.mood != Mood.SICK:
             if self.needs.energy < 60:          # in der Hängematte erst mal ausruhen
                 self._set("sleep", math.inf)
@@ -708,6 +758,10 @@ class Cat:
                 self._set("idle_sit", self.rng.uniform(8, 20))
                 return
         if self.needs.energy < 20:
+            near = self._bigtree_near(world)
+            if (near is not None and self._cave_door(world, near) is not None
+                    and self.rng.random() < P_CAVE_SLEEP and self._seek_cave(near, "sleep", world)):
+                return
             if not self._seek("bed", world):
                 self._set("sleep", math.inf)
             return
@@ -716,6 +770,9 @@ class Cat:
                 self._set("sick_lie", math.inf)
             return
         if self._hungry() and self._seek("bowl", world):
+            return
+        edge = self._bowl_edge(world)   # Würfel nur, wenn der Napf an einer Kante steht
+        if edge and self.rng.random() < P_BOWL_PUSH and self._seek_push(edge, world, fresh=True):
             return
         # Würfel nur mit Knäuel bzw. Kratzbaum, sonst verschiebt sich der Zufall für alles andere
         if (self.furniture.usable("yarn", world) is not None
@@ -798,7 +855,11 @@ class Cat:
         return best[0] if best is not None else None
 
     def _use_bigtree(self, world: World, kind: str, on: bool) -> bool:
-        """Auf eine andere Fläche springen, am Pfeiler hochklettern oder daran kratzen."""
+        """Auf eine andere Fläche springen, am Pfeiler hochklettern, daran kratzen oder in
+        die Höhle gehen."""
+        if (not on and self._cave_door(world, kind) is not None and self.rng.random() < P_CAVE
+                and self._seek_cave(kind, "peek", world)):
+            return True
         ups = [q for q in self._jump_targets(world, self.platform)
                if q.owner.startswith(BOARD_ID) and q != self.platform]
         walls = [] if on else [w for w in world.walls_near(self.platform, self.x, CLIMB_OFFSET)
@@ -833,9 +894,11 @@ class Cat:
         if pos is None:
             return None
         if is_tree(kind):
-            return self._post_spot(kind, pos, world)
+            return self._cave_door(world, kind) if self._cave_plan else self._post_spot(kind, pos, world)
         if kind == "bed":
             spots = [pos[0]]
+        elif kind == "bowl" and self._push_dir:   # auf der Innenseite, mit der Pfote dran
+            spots = [pos[0] - self._push_dir * REACH["yarn"] * self.sprite / 32]
         else:
             reach = REACH[kind] * self.sprite / 32
             side = -1 if self.x < pos[0] else 1
@@ -845,6 +908,108 @@ class Cat:
             if q is not None:
                 return x, q
         return None
+
+    def _bowl_edge(self, world: World) -> int:
+        """Richtung der Kante, an der der Napf steht und von der er herunterfallen kann (0: keine)."""
+        pos = self.furniture.usable("bowl", world)
+        p = self.furniture.platform("bowl")
+        if pos is None or p is None or p.is_floor:
+            return 0
+        for d in (-1, 1):
+            edge = p.x2 if d > 0 else p.x1
+            if abs(edge - pos[0]) <= BOWL_EDGE * self.sprite and world.neighbor(p, d) is None:
+                return d
+        return 0
+
+    def _seek_push(self, d: int, world: World, fresh: bool = False) -> bool:
+        if fresh:
+            self._nudges_left = self.rng.randint(*BOWL_NUDGES)
+        self._push_dir = d
+        if self._seek("bowl", world):
+            return True
+        self._push_dir = 0
+        return False
+
+    def _nudge(self, world: World) -> None:
+        """Mit der Pfote anstupsen: erst ein Stück, beim letzten Mal über die Kante."""
+        d = self._push_dir
+        p = self.furniture.platform("bowl")
+        bx = self.furniture.bodies["bowl"].x
+        self.facing = d
+        self._nudges_left -= 1
+        to_edge = abs((p.x2 if d > 0 else p.x1) - bx) + 2
+        travel = to_edge * (1.0 if self._nudges_left <= 0 else self.rng.uniform(0.25, 0.45))
+        self.furniture.shove_bowl(d * math.sqrt(2 * ROLL_FRICTION * travel) * (1.15 if self._nudges_left <= 0 else 1))
+        self._set("nudge", BOWL_NUDGE_S)
+
+    def _after_nudge(self, world: World) -> None:
+        d = self._push_dir
+        if self._nudges_left > 0 and self._bowl_edge(world) == d and self._seek_push(d, world):
+            return   # hinterher und nochmal
+        self._push_dir = 0
+        self.facing = d or self.facing
+        self._set("idle_sit", self.rng.uniform(2, 4))   # zuschauen
+
+    def _cave_door(self, world: World, kind: str) -> tuple[float, Platform] | None:
+        """Vor der Tür der Höhle (Mitte) auf dem Sockel; None ohne Höhle."""
+        pos = self.furniture.usable(kind, world)
+        if pos is None:
+            return None
+        lay = self.furniture.trees[kind].layout()
+        b = cave_of(lay)
+        if b is None:
+            return None
+        s = self.sprite / 32
+        x = pos[0] + (b.x1 + (b.x2 - b.x1 - DOOR_W) // 2 + DOOR_W / 2 - lay.w / 2) * s
+        q = world.platform_by_owner_at(f"{BOARD_ID}{kind}:{BASE_KEY}", x)
+        return (x, q) if q is not None and self._allowed(world, q) else None
+
+    def _seek_cave(self, kind: str, plan: str, world: World) -> bool:
+        self._cave_plan = plan
+        if self._seek(kind, world):
+            return True
+        self._cave_plan = None
+        return False
+
+    def _in_cave(self, dt: float, world: World) -> None:
+        door = self._cave_door(world, self._cave) if self._cave else None
+        if door is None or abs(door[0] - self.x) > 2:   # Baum weg, verschoben oder ohne Höhle
+            self._choose(world)
+            return
+        s = self.sprite / 32
+        cursor = self._cursor
+        near = cursor is not None and math.hypot(cursor[0] - self.x, cursor[1] - (self.y - 8 * s)) < CAVE_SPOOK
+        if self.state == "cave" and near and not self._spooked:
+            if (self.cfg.play_enabled and self.needs.mood != Mood.SICK and self.needs.energy >= 20
+                    and self.rng.random() < 0.5):
+                self._set("cave_out", CAVE_OUT_S / 2)   # raus und hinterher
+                self._play_left = PLAY_LINGER
+            else:
+                self._set("cave_duck", self.rng.uniform(1.5, 3))
+        self._spooked = near
+        if self.state == "cave" and self.rng.random() < dt / CAVE_LOOK_S:
+            self.facing = -self.facing   # umschauen
+        if self.state == "cave_sleep":
+            if self.needs.energy >= 80:
+                self._set("cave", self.rng.uniform(3, 6))   # aufgewacht: kurz schauen, dann raus
+            return
+        self._timer -= dt
+        if self._timer > 0:
+            return
+        if self.state == "cave_in":
+            if self._cave_plan == "sleep" or self.needs.energy < 40:
+                self._set("cave_sleep", math.inf)
+            elif self.rng.random() < P_CAVE_BUTT:
+                self._set("cave_butt", self.rng.uniform(4, 10))
+            else:
+                self._set("cave", self.rng.uniform(*CAVE_STAY))
+            self._cave_plan = None
+        elif self.state == "cave_duck":
+            self._set("cave", self.rng.uniform(3, 8))
+        elif self.state in ("cave", "cave_butt"):
+            self._set("cave_out", CAVE_OUT_S)
+        else:
+            self._choose(world)
 
     def _post_spot(self, kind: str, pos, world: World) -> tuple[float, Platform] | None:
         """Neben dem nächsten Pfeiler, der bis zum Boden reicht (hängend reicht keiner)."""
@@ -880,7 +1045,7 @@ class Cat:
 
     def _target(self, kind: str, world: World) -> tuple[float, Platform, str] | None:
         """Standplatz, seine Kante und der Weg dorthin; None = nicht erreichbar oder sinnlos."""
-        if kind == "bowl" and self.furniture.food <= 0:
+        if kind == "bowl" and self.furniture.food <= 0 and not self._push_dir:
             return None
         spot = self._spot(kind, world)
         way = self._way(world, *spot) if spot is not None else None
@@ -939,6 +1104,13 @@ class Cat:
         if kind == "bed":
             self._set("sleep", math.inf)
             self._in_bed = True
+            return
+        if kind == "bowl" and self._push_dir:
+            self._nudge(world)
+            return
+        if is_tree(kind) and self._cave_plan:
+            self._cave = kind
+            self._set("cave_in", CAVE_IN_S)
             return
         bx = self.furniture.usable(kind, world)[0]
         if is_tree(kind):

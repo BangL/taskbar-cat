@@ -7,18 +7,19 @@ import zlib
 from pathlib import Path
 
 from PyQt6.QtCore import QPointF, QRectF, Qt
-from PyQt6.QtGui import QColor, QImage, QLinearGradient, QPainter, QPen, QPolygonF
+from PyQt6.QtGui import QColor, QImage, QLinearGradient, QPainter, QPainterPath, QPen, QPolygonF
 
 from . import bigtree
 from .furniture import FRAME_H
 
-ATLAS_VERSION = 11
+ATLAS_VERSION = 12
 UFO_VERSION = 1
-FURNITURE_VERSION = 5
+FURNITURE_VERSION = 6
 FRAME = 32
 ANIMS = {"sit": 2, "groom": 2, "vomit": 2, "walk": 4, "crawl": 4, "jump": 1, "fall": 1, "sleep": 2, "eat": 2, "purr": 2, "dragged": 2, "lie": 2, "climb": 4, "hang": 2,
          "crouch": 2, "swipe": 2, "cheer": 2, "bat": 2, "scratch": 2, "climb_post": 4,
-         "hammock": 4, "hammock_sleep": 4}
+         "hammock": 4, "hammock_sleep": 4, "cave_in": 2, "cave_peek": 8, "cave_duck": 2, "cave_sleep": 2,
+         "cave_butt": 4}
 MOODS = ("normal", "sad", "sick")
 
 FUR_DEFAULT = "#E8913A"
@@ -27,10 +28,12 @@ EYE = QColor("#1A1A1A")
 EYE_PALE = QColor("#E2DCA8")   # auf dunklem Fell sieht man schwarze Augen nicht
 NOSE = QColor("#F28CA0")
 BOWL = QColor("#3A7BD5")
+BOWL_DARK = QColor("#2A5CA8")
 HEART = QColor("#E8364F")
 PUKE = QColor("#9FB04A")
 ZZZ = QColor("#DDE6FF")
 FOOD = QColor("#8B5A2B")
+FOOD_LIGHT = QColor("#C08A50")   # einzelne Körner im verschütteten Häufchen
 BED = QColor("#B04A5A")
 BED_DARK = QColor("#7A2E3C")
 CUSHION = QColor("#E8D9B8")
@@ -303,6 +306,25 @@ def _bowl(c: _Pen, x: int, food: int = 2):
         c.rect(x + 3, 24, 2, 1, FOOD)
 
 
+def _bowl_tipped(c: _Pen, x: int = 12):
+    """Umgedrehter Napf: Boden mit schmalem Fuß oben, ein paar Krümel drumherum."""
+    c.rect(x, 28, 8, 3, BOWL)
+    c.rect(x + 2, 27, 4, 1, BOWL_DARK)
+    c.rect(x + 1, 30, 6, 1, BOWL_DARK)
+
+
+def _spill(c: _Pen, portions: int):
+    """Verschüttetes Futter: ein Häufchen, je Portion größer (einzelne Körner wären mit
+    Kontur nur Striche)."""
+    w = 2 + 2 * portions
+    c.rect(16 - w // 2, 30, w, 1, FOOD)
+    c.rect(16 - w // 2 + 1, 29, w - 2, 1, FOOD)
+    if portions >= 3:
+        c.rect(15, 28, 2, 1, FOOD)
+    for x, y in ((15, 30), (17, 29), (13, 30), (19, 30))[:1 + portions]:   # liegen alle im Häufchen
+        c.px(x, y, FOOD_LIGHT)
+
+
 def _eat(c: _Pen, f: int):
     _bowl(c, 23)
     c.tail([(6, 29), (2, 27), (2, 22)])
@@ -383,6 +405,44 @@ def _hammock(c: _Pen, f: int, sleep: bool = False):
         c.z(25, 10 - f % 2 * 2, 3 + f % 2)
 
 
+# Höhle des großen Kratzbaums: Tür mittig im Frame (bigtree.DOOR_W breit), Boden = Höhlenboden
+
+def _cave_in(c: _Pen, f: int):
+    """Von hinten, geduckt: schlüpft durch die Tür hinein (verblasst im Dunkeln)."""
+    sway = (0, 1)[f]
+    c.ell(16, 28, 6, 3.5)
+    c.ell(16, 23, 4, 3.5)
+    c.poly([(12, 22), (13, 17), (15, 21)])
+    c.poly([(17, 21), (19, 17), (20, 22)])
+    c.line([(16, 31), (16, 27), (17 + sway, 24)], 2, c.dark)   # Schwanz hoch, über dem Rücken
+
+
+def _cave_peek(c: _Pen, f: int):
+    """Nur der Kopf schaut aus der Tür, ab und zu blinzelt sie."""
+    c.head(16, 26, "closed" if f == 7 else "open")
+
+
+def _cave_duck(c: _Pen, f: int):
+    """Weggeduckt: nur die Ohren schauen noch heraus (hängende Ohren: auch die Augen)."""
+    c.head(16, (34 if c.mood == "normal" else 31) - f, "open")
+
+
+def _cave_butt(c: _Pen, f: int):
+    """Selten: verkehrt herum drin, der Hintern mit kleinem x schaut heraus, Schwanz wedelt."""
+    sway = (0, 1, 0, -1)[f]
+    c.ell(16, 27, 6, 5)
+    c.rect(11, 29, 3, 3)
+    c.rect(18, 29, 3, 3)
+    c.tail([(16, 23), (16, 19), (17 + sway, 15), (16 + 2 * sway, 12)])
+    for dx, dy in ((-1, -1), (1, -1), (0, 0), (-1, 1), (1, 1)):
+        c.px(16 + dx, 26 + dy, c.dark)
+
+
+def _cave_sleep(c: _Pen, f: int):
+    c.head(16, 27, "closed")
+    c.z(23, 10 - f * 2, 3 + f)
+
+
 def _hang(c: _Pen, f: int):
     """Mit den Vorderpfoten an einer Kante oben hängend, Hinterbeine zappeln."""
     c.rect(10, 0, 3, 3)
@@ -460,7 +520,9 @@ POSES = {"sit": _sit, "groom": _groom, "vomit": _vomit, "walk": _walk, "crawl": 
          "climb": _climb, "hang": _hang,
          "crouch": _crouch, "swipe": _swipe, "cheer": _cheer, "bat": _bat, "scratch": _scratch,
          "climb_post": _climb_post, "hammock": _hammock,
-         "hammock_sleep": lambda c, f: _hammock(c, f, sleep=True)}
+         "hammock_sleep": lambda c, f: _hammock(c, f, sleep=True),
+         "cave_in": _cave_in, "cave_peek": _cave_peek, "cave_duck": _cave_duck, "cave_sleep": _cave_sleep,
+         "cave_butt": _cave_butt}
 
 
 def _fill_holes(img: QImage, x0: int, y0: int) -> None:
@@ -540,9 +602,10 @@ def ensure_atlas(cache_dir: Path, fur: QColor | str = FUR_DEFAULT,
 
 # Bett in zwei Ebenen: die Katze liegt zwischen Rückwand und vorderem Rand
 FURNITURE_FRAMES = ("bed_back", "bed_front", "bowl_0", "bowl_1", "bowl_2", "bowl_3", "yarn", "yarn_roll",
-                    "tree")
+                    "tree", "bowl_tipped", "spill_1", "spill_2", "spill_3")
 FURNITURE_ROWS = max(FRAME_H.values()) // FRAME   # Atlas-Höhe in Frames; kleine stehen unten
-BOWL_LEVELS = 3   # Frames bowl_0 .. bowl_3, je Portion im Napf eins
+BOWL_LEVELS = 3   # Frames bowl_0 .. bowl_3, je Portion im Napf eins; spill_1 .. spill_3 verschüttet
+SPILL_DX = 10     # so weit (Frame-Pixel) neben dem umgedrehten Napf liegt das Futter
 # Frames fürs Inventarbild, übereinander gezeichnet
 FURNITURE_ICON = {"bed": ("bed_back", "bed_front"), "bowl": ("bowl_3",), "yarn": ("yarn",), "tree": ("tree",)}
 
@@ -593,7 +656,8 @@ def render_furniture() -> QImage:
     img.fill(Qt.GlobalColor.transparent)
     draw = {"bed_back": _bed_back, "bed_front": _bed_front,
             **{f"bowl_{n}": lambda c, n=n: _bowl(c, 12, n) for n in range(BOWL_LEVELS + 1)},
-            "yarn": lambda c: _yarn(c, 0), "yarn_roll": lambda c: _yarn(c, 1), "tree": _tree}
+            "yarn": lambda c: _yarn(c, 0), "yarn_roll": lambda c: _yarn(c, 1), "tree": _tree,
+            "bowl_tipped": _bowl_tipped, **{f"spill_{n}": lambda c, n=n: _spill(c, n) for n in (1, 2, 3)}}
     for name in FURNITURE_FRAMES:
         x0, y0 = furniture_origin(name)
         h = furniture_height(name)
@@ -632,8 +696,10 @@ def _outline_all(img: QImage, color: QColor) -> None:
                 img.setPixel(nx, ny, rgb)
 
 
-def render_bigtree(w: float, h: float, hanging: bool = False, seed: int = 0) -> QImage:
-    """Großer Kratzbaum (bigtree.layout) in Sprite-Pixeln, so groß wie sein Aufbau."""
+def render_bigtree(w: float, h: float, hanging: bool = False, seed: int = 0,
+                   load: tuple[str, int] | None = None) -> QImage:
+    """Großer Kratzbaum (bigtree.layout) in Sprite-Pixeln, so groß wie sein Aufbau;
+    load = (Brett, Pixel): diese Hängematte hängt so viel tiefer durch (Katze liegt drin)."""
     lay = bigtree.layout(w, h, hanging, seed)
     img = QImage(lay.w, lay.h, QImage.Format.Format_ARGB32)
     img.fill(Qt.GlobalColor.transparent)
@@ -652,15 +718,31 @@ def render_bigtree(w: float, h: float, hanging: bool = False, seed: int = 0) -> 
     for b in lay.boards:
         bw = b.x2 - b.x1
         if b.style == "hammock":
-            p.setBrush(HAMMOCK)
-            p.drawChord(b.x1, b.y - b.sag - 1, bw, 2 * b.sag, 180 * 16, 180 * 16)
-            p.fillRect(b.x1, b.y - 2, bw, 1, HAMMOCK_DARK)
+            dip = load[1] if load is not None and load[0] == b.key else 0
+            if dip:   # unter der Katze hängen Rand und Bauch tiefer durch
+                mid, rim = (b.x1 + b.x2) / 2, b.y - 1.5
+                path = QPainterPath(QPointF(b.x1, rim))
+                path.quadTo(QPointF(mid, rim + 2 * dip), QPointF(b.x2, rim))
+                path.quadTo(QPointF(mid, b.y - 1 + 2 * (b.sag + dip)), QPointF(b.x1, rim))
+                p.setBrush(HAMMOCK)
+                p.drawPath(path)
+                p.setPen(QPen(HAMMOCK_DARK, 1))
+                p.setBrush(Qt.BrushStyle.NoBrush)
+                edge = QPainterPath(QPointF(b.x1, rim))
+                edge.quadTo(QPointF(mid, rim + 2 * dip), QPointF(b.x2, rim))
+                p.drawPath(edge)
+                p.setPen(Qt.PenStyle.NoPen)
+            else:
+                p.setBrush(HAMMOCK)
+                p.drawChord(b.x1, b.y - b.sag - 1, bw, 2 * b.sag, 180 * 16, 180 * 16)
+                p.fillRect(b.x1, b.y - 2, bw, 1, HAMMOCK_DARK)
         elif b.style == "cave":
             p.fillRect(b.x1, b.y, bw, b.sag, CAVE)
             p.fillRect(b.x1, b.y, bw, 2, CARPET)
             p.setBrush(CAVE_HOLE)
-            p.drawEllipse(b.x1 + bw // 2 - 4, b.y + 4, 8, 8)
-            p.fillRect(b.x1 + bw // 2 - 4, b.y + 8, 8, b.sag - 8 - (2 if lay.hanging else 0), CAVE_HOLE)
+            d = bigtree.DOOR_W
+            p.drawEllipse(b.x1 + (bw - d) // 2, b.y + 4, d, d)
+            p.fillRect(b.x1 + (bw - d) // 2, b.y + 4 + d // 2, d, b.sag - 4 - d // 2, CAVE_HOLE)
         else:
             p.fillRect(b.x1, b.y, bw, bigtree.BOARD_H, CARPET)
             p.fillRect(b.x1, b.y + bigtree.BOARD_H - 1, bw, 1, CARPET_DARK)
@@ -675,10 +757,25 @@ def render_bigtree(w: float, h: float, hanging: bool = False, seed: int = 0) -> 
     return img
 
 
+def render_front(w: float, h: float, hanging: bool, seed: int, load: tuple[str, int]) -> QImage | None:
+    """Teil des Baums vor der Katze (bigtree.front_part): die Wand der Höhle ohne Tür
+    oder die durchhängende Hängematte; None, wenn es den nicht gibt."""
+    lay = bigtree.layout(w, h, hanging, seed)
+    rect = bigtree.front_part(lay, *load)
+    if rect is None:
+        return None
+    img = render_bigtree(w, h, hanging, seed, load).copy(*rect)
+    if any(b.key == load[0] and b.style == "cave" for b in lay.boards):
+        hole = CAVE_HOLE.rgba()
+        for y in range(img.height()):
+            for x in range(img.width()):
+                if img.pixel(x, y) == hole:   # durch die Tür sieht man sie
+                    img.setPixel(x, y, 0)
+    return img
+
+
 def furniture_icon(kind: str) -> QImage:
     """Bild fürs Inventar (FURNITURE_ICON), so hoch wie der Frame."""
-    if bigtree.is_tree(kind):
-        return render_bigtree(40, 64)
     h = max(furniture_height(n) for n in FURNITURE_ICON[kind])
     img = QImage(FRAME, h, QImage.Format.Format_ARGB32)
     img.fill(Qt.GlobalColor.transparent)

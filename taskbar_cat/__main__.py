@@ -13,7 +13,8 @@ from . import __version__, paths, sprites, status, storage
 from .guard import guarded
 from .bus import CatBus, query_status as bus_query
 from .cat import Cat
-from .bigtree import KIND as KIND_BIGTREE, is_tree
+from .furniture import BOWL_PORTIONS
+from .bigtree import is_tree
 from .play import WiggleDetector
 from .ui.collection import CollectionDialog
 from .ui.inventory import InventoryDialog
@@ -208,10 +209,14 @@ def main(argv: list[str] | None = None) -> int:
             b = furniture.bodies[kind]
             furniture_menu.addAction("Weiteren Kratzbaum aufstellen", guarded(
                 lambda: add_bigtree(None, b.x + 2 * half_width(kind) + 40, b.y - 400)))
-            if kind != KIND_BIGTREE:   # weitere Bäume stehen nicht im Inventar
-                furniture_menu.addAction("Entfernen", guarded(lambda: remove_bigtree(kind)))
-                furniture_menu.popup(pos)
-                return
+            furniture_menu.addAction("Entfernen", guarded(lambda: remove_bigtree(kind)))
+            furniture_menu.popup(pos)
+            return
+        if kind == "bowl":   # wie Linksklick aufs Tray-Icon; voll passt nichts mehr hinein
+            full = not furniture.tipped and furniture.food >= BOWL_PORTIONS
+            furniture_menu.addAction("Füttern (Napf voll)" if full else "Füttern",
+                                     guarded(feed)).setEnabled(not full)
+            furniture_menu.addSeparator()
         furniture_menu.addAction("Einlagern", guarded(lambda: store(kind)))
         furniture_menu.addAction("Inventar ...", guarded(show_inventory))
         furniture_menu.popup(pos)

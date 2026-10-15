@@ -624,3 +624,86 @@ def test_cat_waits_while_bowl_falls():
     run(c, world(), DT)   # Fenster weg: der Napf fällt
     assert c.state == "seek" and c.frame_key(0)[0] == "sit"
     assert run(c, world(), 30, until=lambda c: c.state == "eat")
+
+
+# --- Napf herunterschubsen ---
+
+def bowl_at_edge(food=2):
+    """Napf auf einem Fenster, nah an dessen rechter Kante; die Katze daneben."""
+    w = world(Win("a", Rect(600, 600, 400, 300), 1, False, False))
+    f = standing(w, "bowl", 1000 - SPRITE * 0.6, 500)
+    f.food = food
+    c = cat_with(w, f, x=760, satiety=100, energy=100, affection=100)
+    c.x, c.y = 760, 600
+    c._land(w, next(p for p in w.platforms if p.owner == "a"))
+    return w, f, c
+
+
+def test_cat_pushes_the_bowl_off_the_edge_and_it_lands_upside_down():
+    w, f, c = bowl_at_edge()
+    assert c._bowl_edge(w) == 1
+    assert c._seek_push(1, w, fresh=True)
+    assert run(c, w, 30, until=lambda c: f.tipped)
+    b = f.bodies["bowl"]
+    assert b.platform.is_floor and b.x > 1000                    # heruntergefallen
+    assert (f.food, f.spill, f.spill_side) == (0, 2, 1)          # Futter liegt daneben
+    assert f.usable("bowl", w) is None and not f.fill(w)          # taugt so nicht
+    run(c, w, 20)
+    assert f.tipped and f.bodies["bowl"].x == b.x                 # bleibt so liegen
+
+
+def test_nudges_until_it_falls():
+    shoves = []
+    for seed in range(6):
+        w, f, c = bowl_at_edge()
+        c.rng = random.Random(seed)
+        c._seek_push(1, w, fresh=True)
+        n, was = 0, None
+        for _ in range(int(30 / DT)):
+            c.tick(DT, w, False)
+            if c.state == "nudge" and was != "nudge":
+                n += 1
+            was = c.state
+            if f.tipped:
+                break
+        assert f.tipped
+        shoves.append(n)
+    assert set(shoves) <= {1, 2, 3} and len(set(shoves)) > 1
+
+
+def test_picking_it_up_rights_it_and_clears_the_mess():
+    w, f, c = bowl_at_edge()
+    c._seek_push(1, w, fresh=True)
+    run(c, w, 30, until=lambda c: f.tipped)
+    f.put("bowl", w, 500, 300, HALF)
+    f.release("bowl", 0, 0)
+    settle(f, w)
+    assert not f.tipped and f.spill == 0 and f.usable("bowl", w) is not None
+    assert f.fill(w) and f.food == 1
+
+
+def test_bowl_in_the_middle_or_on_the_floor_stays():
+    w = world(Win("a", Rect(600, 600, 400, 300), 1, False, False))
+    f = standing(w, "bowl", 800, 500)
+    c = cat_with(w, f)
+    assert c._bowl_edge(w) == 0
+    f2 = standing(w, "bowl", 300, 500)
+    assert cat_with(w, f2)._bowl_edge(w) == 0
+
+
+def test_tipped_bowl_is_saved():
+    w, f, c = bowl_at_edge(food=3)
+    c._seek_push(1, w, fresh=True)
+    run(c, w, 30, until=lambda c: f.tipped)
+    g = Furniture.from_dict(f.to_dict())
+    assert (g.tipped, g.spill, g.spill_side) == (True, 3, 1)
+    assert not Furniture.from_dict({}).tipped
+
+
+def test_cat_pushes_it_now_and_then_on_her_own():
+    pushed = 0
+    for seed in range(6):
+        w, f, c = bowl_at_edge()
+        c.rng = random.Random(seed)
+        pushed += run(c, w, 120, until=lambda c: f.tipped)
+    assert pushed >= 2
