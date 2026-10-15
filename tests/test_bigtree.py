@@ -12,7 +12,7 @@ from taskbar_cat.furniture import Furniture
 from taskbar_cat.needs import Needs
 from PyQt6.QtCore import Qt
 
-from test_furniture import DT, settle, world
+from test_furniture import DT, HALF, settle, world
 
 S = SPRITE / 32
 SIZES = [(w, h) for w in range(24, 129, 9) for h in range(40, 401, 23)]
@@ -859,6 +859,111 @@ def test_behind_survives_a_restart(tmp_path):
     storage.save(path, f)
     g = storage.load_furniture(path)
     assert g.behind(KIND) and g.behind("tree")
+
+
+def drop_on_trees(f, w, seconds=10):
+    """Fallen lassen in der Welt samt Baumkanten - sonst landet alles auf dem Boden."""
+    for _ in range(int(seconds / DT)):
+        f.tick(f.world_with(w, SPRITE), DT, SPRITE)
+
+
+def test_things_on_a_hidden_tree_are_hidden_too():
+    """Napf und Knäuel auf einem versteckten Baum verschwinden mit ihm, und nur solange
+    sie darauf liegen."""
+    w = world()
+    f = Furniture()
+    f.add_tree(1000, 100)
+    f.trees[KIND].resize(100, 200)
+    settle(f, w, 10)
+    base = f.usable(KIND, w)
+    f.place("bowl", w, base[0], base[1] - 400, HALF)
+    drop_on_trees(f, w)
+    assert f.bodies["bowl"].platform.owner.startswith(BOARD_ID)   # steht auf dem Baum
+    assert not f.hidden("bowl")
+    f.set_behind(KIND, True)
+    assert f.hidden(KIND) and f.hidden("bowl")
+    f.place("bowl", w, 100, 500, HALF)        # herunter auf den Boden
+    drop_on_trees(f, w)
+    assert not f.hidden("bowl") and f.hidden(KIND)
+
+
+def test_hidden_carries_through_a_stack():
+    """Kleiner Kratzbaum auf dem großen, Napf auf dem kleinen: alle drei verschwinden."""
+    w = world()
+    f = Furniture()
+    f.add_tree(1000, 100)
+    f.trees[KIND].resize(100, 260)
+    settle(f, w, 10)
+    deck = max((p for p in f.world_with(w, SPRITE).platforms if p.owner.startswith(BOARD_ID)),
+               key=lambda p: p.x2 - p.x1)
+    f.place("tree", w, (deck.x1 + deck.x2) / 2, deck.y - 300, HALF)
+    drop_on_trees(f, w)
+    assert f.bodies["tree"].platform.owner.startswith(BOARD_ID)
+    f.place("bowl", w, f.usable("tree", w)[0], deck.y - 600, HALF)
+    drop_on_trees(f, w)
+    assert f.bodies["bowl"].platform.owner == "furniture:tree"
+    f.set_behind(KIND, True)
+    assert f.hidden("tree") and f.hidden("bowl")
+
+
+def test_hanging_tree_does_not_loop():
+    """Ein hängender Baum steht auf seiner eigenen Kante - das darf sich nicht aufschaukeln."""
+    w = world()
+    f = Furniture()
+    f.add_tree(1000, 100)
+    f.world_with(w, SPRITE)
+    f.put(KIND, w, 1000, 50, HALF)
+    f.release(KIND, 0, 0)
+    assert f.trees[KIND].hanging
+    assert not f.hidden(KIND)
+    f.set_behind(KIND, True)
+    assert f.hidden(KIND)
+
+
+def test_cat_on_something_that_stands_on_a_hidden_tree():
+    """Sie sitzt auf dem kleinen Kratzbaum, der auf dem versteckten großen steht."""
+    w = world()
+    f = Furniture()
+    f.add_tree(1000, 100)
+    f.trees[KIND].resize(100, 260)
+    settle(f, w, 10)
+    deck = max((p for p in f.world_with(w, SPRITE).platforms if p.owner.startswith(BOARD_ID)),
+               key=lambda p: p.x2 - p.x1)
+    f.place("tree", w, (deck.x1 + deck.x2) / 2, deck.y - 300, HALF)
+    drop_on_trees(f, w)
+    ww = f.world_with(w, SPRITE)
+    c = cat_near(f, w)
+    c._land(ww, next(p for p in ww.platforms if p.owner == "furniture:tree"))
+    assert not c.hidden_behind(ww)
+    f.set_behind(KIND, True)
+    assert c.hidden_behind(ww)
+
+
+def test_overlay_cuts_what_stands_on_a_hidden_tree(overlay):
+    from taskbar_cat.world import Output, Rect, Win, World
+    om, ov = overlay
+    g = ov.screen.geometry()
+    out = [Output("x", Rect(0, 0, g.width(), g.height()), Rect(0, 0, g.width(), g.height()))]
+    w = World(out, [])
+    f = Furniture()
+    f.add_tree(g.width() / 2, 20)
+    f.trees[KIND].resize(100, 120)
+    settle(f, w, 10)
+    board = max((p for p in f.world_with(w, SPRITE).platforms if p.owner.startswith(BOARD_ID)),
+                key=lambda p: p.x2 - p.x1)
+    f.place("bowl", w, (board.x1 + board.x2) / 2, board.y - 200, 20)
+    drop_on_trees(f, w)
+    assert f.bodies["bowl"].platform.owner.startswith(BOARD_ID)
+    c = Cat(Needs(), random.Random(0))
+    c.furniture = f
+    c.spawn(w)
+    c.x = 10
+    bowl_x, bowl_y = f.usable("bowl", w)
+    covered = World(out, [Win("a", Rect(0, 0, g.width(), bowl_y - 10), 5, False, False)])
+    f.set_behind(KIND, True)
+    om.render(c, f.world_with(covered, c.sprite), 0, f)
+    pieces = [p for t in ov.scene.property("furnitureBack") for p in t["clip"]]
+    assert pieces and all(p["y"] >= bowl_y - 10 - ov.origin.y() for p in pieces)
 
 
 @pytest.mark.parametrize("kind", [KIND, "tree"])

@@ -260,7 +260,7 @@ class OverlayManager(QObject):
                 frames = (kind, x, y, f"bowl_{level}", None)
             self._furn_rects[kind] = self._uncovered_rects(
                 self._furniture_rects(frames, size),
-                self._covers if furniture.behind(kind) else ())
+                self._covers if furniture.hidden(kind) else ())
             out.append(frames)
             if frames[3] == "bowl_tipped" and furniture.spill and furniture.tipped:
                 # Das Futter daneben liegt nur da: kein Mauskasten, keine Input-Region.
@@ -275,7 +275,7 @@ class OverlayManager(QObject):
         Die Bäume kommen nicht aus dem Atlas, ihre Mausflächen sind die Teile des Aufbaus."""
         tree = furniture.trees[kind]
         left, top, s, lay = bigtree.geometry(tree, pos, size)
-        covers = self._covers if furniture.behind(kind) else ()
+        covers = self._covers if furniture.hidden(kind) else ()
         self._furn_parts[kind] = list(self._uncovered_rects(
             (QRect(round(r.x), round(r.y), round(r.w), round(r.h))
              for r in bigtree.parts(tree, pos, size)), covers))
@@ -297,7 +297,7 @@ class OverlayManager(QObject):
     def _add_toys(self, furniture: Furniture, kind: str, left: float, top: float, s: float) -> None:
         """Bällchen eines Kratzbaums (links oben seines Bildes bei left, top) fürs QML;
         sie pendeln, stecken also nicht im Bild."""
-        covers = self._covers if furniture.behind(kind) else ()
+        covers = self._covers if furniture.hidden(kind) else ()
         for i, (tx, ty, n, col) in enumerate(furniture.toys_of(kind)):
             x, y, reach = left + (tx + 0.5) * s, top + ty * s, (n + 5) * s
             self._toys.append({"x": x, "y": y, "len": n * s, "s": s,
@@ -313,9 +313,12 @@ class OverlayManager(QObject):
         Ihre Uhr ist furniture.spill_age, damit die Katze sie dort fängt, wo man sie sieht."""
         if furniture is None or self._pile is None:
             return []
+        covers = self._covers if furniture.hidden("bowl") else ()
         out = []
         for i in furniture.fly_ids:
             x, y = furniture.fly_at(i, size)
+            if any(r.contains(x, y) for r in covers):
+                continue      # über Futter hinter einem Fenster: keine zu sehen
             out += [x, y, float(fly_path(furniture.spill_age, i)[2])]
         return out
 
@@ -397,7 +400,7 @@ class OverlayManager(QObject):
             self._render_ufo(w, cat, o)
             back, front = [], []
             for kind, x, y, b, f in furn:
-                covers = self._covers if furniture is not None and furniture.behind(kind) else ()
+                covers = self._covers if furniture is not None and furniture.hidden(kind) else ()
                 for name, layer in ((b, back), (f, front)):
                     if name is not None:
                         fx, fy = sprites.furniture_origin(name)

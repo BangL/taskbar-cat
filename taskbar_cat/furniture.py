@@ -504,15 +504,36 @@ class Furniture:
         elif kind == "tree":
             self.tree_behind = on
 
-    def hidden_owner(self, owner: str) -> bool:
-        """Gehört die Kante (oder Wand) zu einem Kratzbaum hinter Fenstern? Wer darauf
-        steht, ist mit ihm verdeckt - sie ist ja im Baum."""
+    def owner_kind(self, owner: str) -> str | None:
+        """Welchem Kratzbaum gehört diese Kante (oder Wand)? None: einem Fenster, dem
+        Boden oder einem Baum, den es nicht mehr gibt."""
         if owner == TREE_ID:
-            return self.tree_behind
-        if not owner.startswith(bigtree.BOARD_ID):
+            return "tree"
+        if owner.startswith(bigtree.BOARD_ID):
+            kind = owner[len(bigtree.BOARD_ID):].split(":")[0]
+            return kind if kind in self.trees else None
+        return None
+
+    def hidden_owner(self, owner: str, seen: set | None = None) -> bool:
+        """Gehört die Kante (oder Wand) zu einem Kratzbaum, der gerade hinter den Fenstern
+        liegt? Wer darauf steht, verschwindet mit ihm - die Katze ist ja im Baum."""
+        kind = self.owner_kind(owner)
+        return kind is not None and self.hidden(kind, seen)
+
+    def hidden(self, kind: str, seen: set | None = None) -> bool:
+        """Liegt dieses Möbel gerade hinter den Fenstern? Entweder ist es ein Kratzbaum,
+        der so eingestellt ist, oder es steht (für den Moment) auf einem, der es ist -
+        der Napf auf dem Brett, das Knäuel auf dem Sockel, ein Baum auf dem anderen.
+        seen bricht Ringe ab: ein hängender Baum steht auf seiner eigenen Kante."""
+        if self.behind(kind):
+            return True
+        if seen is None:
+            seen = set()
+        if kind in seen or kind not in self.bodies:
             return False
-        t = self.trees.get(owner[len(bigtree.BOARD_ID):].split(":")[0])
-        return t is not None and t.behind
+        seen.add(kind)
+        b = self.bodies[kind]
+        return b.platform is not None and not b.held and self.hidden_owner(b.platform.owner, seen)
 
     def locked(self, kind: str) -> bool:
         return kind in self.trees and self.trees[kind].locked
