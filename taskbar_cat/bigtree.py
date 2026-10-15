@@ -12,7 +12,7 @@ und jeder Pfeiler zu einer Wand, an der die Katze hochklettert.
 """
 import functools
 import random
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from .world import Rect, Wall, Win
 
@@ -39,6 +39,9 @@ LOAD_TIME = 0.4            # so lange (s) sinkt sie ein
 CAT_SINK = 6               # so tief liegt die Katze dann im Stoff (Matte davor)
 DOOR_W = 12                # Tür der Höhle: ihr Kopf passt hindurch
 CAVE_MIN_W = 28            # schmaler wird keine Höhle (geduckt ist sie so lang)
+WEAR_FULL_S = 600.0        # so lange (s) Kratzen, bis ein Pfeiler ganz zerfranst ist
+WEAR_LEVELS = 3            # sichtbare Stufen der Kratzspuren
+TOY_REACH = (4, 24)        # Bällchen so weit (Sprite-px) über ihrer Fläche: mit der Pfote erreichbar
 
 
 def is_tree(kind) -> bool:
@@ -211,6 +214,7 @@ class Tree:
     seed: int = 0
     hanging: bool = False
     top: float = 0.0           # hängend: Oberkante (global)
+    wear: list = field(default_factory=list)   # je Pfeiler 0..1: so zerkratzt ist der Sisal
 
     def size(self) -> tuple[int, int]:
         return int(round(self.w)), int(round(self.h))
@@ -229,6 +233,8 @@ class Tree:
         d = {"size": [round(self.w, 2), round(self.h, 2)], "seed": self.seed}
         if self.hanging:
             d["hang_top"] = self.top
+        if any(self.wear):
+            d["wear"] = [round(v, 4) for v in self.wear]
         return d
 
     @classmethod
@@ -242,7 +248,20 @@ class Tree:
         top = d.get("hang_top")
         if isinstance(top, (int, float)) and not isinstance(top, bool):
             t.hanging, t.top = True, float(top)
+        wear = d.get("wear")
+        if isinstance(wear, list):
+            t.wear = [max(0.0, min(1.0, float(v))) if isinstance(v, (int, float)) else 0.0 for v in wear]
         return t
+
+    def scratch(self, post: int, dt: float) -> None:
+        """Am Pfeiler kratzen: der Sisal franst langsam aus."""
+        self.wear += [0.0] * (post + 1 - len(self.wear))
+        self.wear[post] = min(1.0, self.wear[post] + dt / WEAR_FULL_S)
+
+    def wear_levels(self) -> str:
+        """Sichtbare Stufe je Pfeiler als Ziffern ("" = nirgends zerkratzt); fürs Bild."""
+        levels = "".join(str(min(WEAR_LEVELS, int(v * (WEAR_LEVELS + 1)))) for v in self.wear)
+        return levels.rstrip("0")
 
     def variant(self, name: str) -> dict:
         """Gespeicherte Variante: alles, was den Aufbau festlegt."""
@@ -339,6 +358,22 @@ def front_part(lay: Layout, key: str, px: int) -> tuple[int, int, int, int] | No
         return b.x1, b.y, b.x2 - b.x1, b.sag
     y = b.y - 3
     return b.x1, y, b.x2 - b.x1, min(lay.h - y, b.sag + px + 5)
+
+
+def reachable_toys(lay: Layout) -> list[tuple[int, str]]:
+    """Bällchen (Index in lay.toys), nach denen sie von einer Fläche darunter mit der Pfote
+    schlagen kann, samt Schlüssel dieser Fläche (Brett oder BASE_KEY)."""
+    out = []
+    for i, (x, y, n, _) in enumerate(lay.toys):
+        ball = y + n + 3
+        below = [(b.y, b.key) for b in lay.boards if b.x1 <= x <= b.x2 and b.y > ball]
+        if not lay.hanging and 1 <= x < lay.w - 1:
+            below.append((lay.base_y, BASE_KEY))
+        if below:
+            surf, key = min(below)
+            if TOY_REACH[0] <= surf - ball <= TOY_REACH[1]:
+                out.append((i, key))
+    return out
 
 
 def cave_of(lay: Layout) -> Board | None:

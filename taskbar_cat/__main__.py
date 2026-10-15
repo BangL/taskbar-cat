@@ -195,6 +195,11 @@ def main(argv: list[str] | None = None) -> int:
             furniture.resize_tree(kind, *tree.wheeled(dx, dy))
             furniture_changed()
 
+    def new_sisal(kind: str) -> None:
+        """Kratzspuren weg: alle Pfeiler wie neu."""
+        furniture.trees[kind].wear = []
+        furniture_changed()
+
     furniture_menu = QMenu()
     def show_furniture_menu(kind: str, pos) -> None:
         furniture_menu.clear()
@@ -205,6 +210,8 @@ def main(argv: list[str] | None = None) -> int:
             for v in storage.load_variants(variants_file):
                 sub.addAction(v["name"], guarded(lambda _c=False, v=v: apply_variant(kind, v)))
             sub.setEnabled(bool(sub.actions()))
+            furniture_menu.addAction("Neuen Sisal", guarded(lambda: new_sisal(kind))).setEnabled(
+                bool(furniture.trees[kind].wear_levels()))
             furniture_menu.addSeparator()
             b = furniture.bodies[kind]
             furniture_menu.addAction("Weiteren Kratzbaum aufstellen", guarded(

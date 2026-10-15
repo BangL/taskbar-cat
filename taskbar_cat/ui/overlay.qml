@@ -33,6 +33,11 @@ Window {
     property var furnitureFront: []
     // Große Kratzbäume: je {kind, src (image://bigtree/...), x, y, w, h} (lokal, links oben)
     property var bigtrees: []
+    // Bällchen der großen Kratzbäume: {x, y (Aufhängung), len (Faden), s (Pixelgröße), color,
+    // string, outline};
+    // toyAngles: Auslenkung je Bällchen in rad (positiv = nach rechts)
+    property var bigtreeToys: []
+    property var toyAngles: []
     // Vor der Katze: durchhängende Hängematte oder Höhlenwand: {src (.../front), x, y, w, h}
     property var bigtreeFronts: []
     // UFO-Easter-Egg (Mitte der Untertasse, Strahl von beamTop bis beamBottom)
@@ -93,6 +98,39 @@ Window {
                 anchors.fill: parent
                 acceptedButtons: Qt.NoButton
                 onWheel: (e) => win.bigtreeWheel(modelData.kind, e.angleDelta.x, e.angleDelta.y)
+            }
+        }
+    }
+
+    // Bällchen wie im Baumbild (Faden 1 px, Kugel 3 px, Kontur 1 px), drehen sich um die Aufhängung
+    Repeater {
+        model: win.bigtreeToys
+        Item {
+            readonly property real s: modelData.s
+            x: Math.round(modelData.x - width / 2)
+            y: Math.round(modelData.y)
+            width: 5 * s
+            height: modelData.len + 4 * s
+            transformOrigin: Item.Top
+            rotation: -(win.toyAngles[index] || 0) * 180 / Math.PI
+            Rectangle {
+                x: s
+                width: 3 * s
+                height: modelData.len
+                color: modelData.outline
+                Rectangle { x: s; width: s; height: parent.height; color: modelData.string }
+            }
+            Rectangle {
+                y: modelData.len - s
+                width: 5 * s
+                height: 5 * s
+                radius: width / 2          // rund: sieht auch schräg wie eine Kugel aus
+                antialiasing: false        // Pixel-Optik wie der Rest
+                color: modelData.outline
+                Rectangle {
+                    x: s; y: s; width: 3 * s; height: 3 * s
+                    radius: width / 2; antialiasing: false; color: modelData.color
+                }
             }
         }
     }

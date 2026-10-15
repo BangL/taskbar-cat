@@ -3,6 +3,7 @@
 Alle Posen schauen nach rechts; Pfoten stehen auf Zeile 30, Zeile 31 bleibt
 für die Kontur frei. Gespiegelt wird beim Zeichnen im Overlay.
 """
+import random
 import zlib
 from pathlib import Path
 
@@ -41,6 +42,7 @@ YARN = QColor("#D8486A")
 YARN_DARK = QColor("#9A2846")
 SISAL = QColor("#D9C08A")
 SISAL_DARK = QColor("#A88B52")
+SISAL_LIGHT = QColor("#F0E2BC")   # zerkratzte, aufgefaserte Stellen
 CARPET = QColor("#8C7B6B")
 CARPET_DARK = QColor("#6A5B4E")
 FURNITURE_OUTLINE = QColor("#2A1A14")
@@ -696,10 +698,25 @@ def _outline_all(img: QImage, color: QColor) -> None:
                 img.setPixel(nx, ny, rgb)
 
 
+def _fray(p: QPainter, x: int, y1: int, y2: int, level: int, post: int) -> None:
+    """Zerkratzter Sisal unten am Pfeiler (wo sie kratzt): helle Stellen und abstehende
+    Fasern, je Stufe mehr; fest je Pfeiler, damit nichts flackert."""
+    r = random.Random(post * 7919 + level)
+    half = bigtree.POST_W // 2
+    top = max(y1, y2 - 26)
+    for _ in range(4 * level):
+        p.fillRect(x - half + r.randrange(bigtree.POST_W), r.randrange(top, y2), 1, 1, SISAL_LIGHT)
+    for _ in range(3 * level):
+        side = r.choice((-1, 1))
+        p.fillRect(x + (half if side > 0 else -half - 1), r.randrange(top, y2 - 1), 1, r.choice((1, 2)), SISAL)
+
+
 def render_bigtree(w: float, h: float, hanging: bool = False, seed: int = 0,
-                   load: tuple[str, int] | None = None) -> QImage:
+                   load: tuple[str, int] | None = None, toys: bool = True, wear: str = "") -> QImage:
     """Großer Kratzbaum (bigtree.layout) in Sprite-Pixeln, so groß wie sein Aufbau;
-    load = (Brett, Pixel): diese Hängematte hängt so viel tiefer durch (Katze liegt drin)."""
+    load = (Brett, Pixel): diese Hängematte hängt so viel tiefer durch (Katze liegt drin);
+    toys=False: ohne Bällchen (die zeichnet das Overlay, damit sie pendeln);
+    wear: Kratzspuren je Pfeiler (Tree.wear_levels)."""
     lay = bigtree.layout(w, h, hanging, seed)
     img = QImage(lay.w, lay.h, QImage.Format.Format_ARGB32)
     img.fill(Qt.GlobalColor.transparent)
@@ -711,7 +728,10 @@ def render_bigtree(w: float, h: float, hanging: bool = False, seed: int = 0,
         p.fillRect(x - bigtree.POST_W // 2, y1, bigtree.POST_W, y2 - y1, SISAL)
         for y in range(y1 + 2, y2, 3):
             p.fillRect(x - bigtree.POST_W // 2, y, bigtree.POST_W, 1, SISAL_DARK)
-    for x, y, n, col in lay.toys:              # Bällchen an Fäden
+    for i, ch in enumerate(wear[:len(lay.posts)]):
+        if ch != "0":
+            _fray(p, *lay.posts[i], int(ch), i)
+    for x, y, n, col in lay.toys if toys else ():   # Bällchen an Fäden
         p.fillRect(x, y, 1, n, SISAL_DARK)
         p.fillRect(x - 1, y + n, 3, 3, TOY_COLORS[col % len(TOY_COLORS)])
     p.setPen(Qt.PenStyle.NoPen)
@@ -764,7 +784,7 @@ def render_front(w: float, h: float, hanging: bool, seed: int, load: tuple[str, 
     rect = bigtree.front_part(lay, *load)
     if rect is None:
         return None
-    img = render_bigtree(w, h, hanging, seed, load).copy(*rect)
+    img = render_bigtree(w, h, hanging, seed, load, toys=False).copy(*rect)
     if any(b.key == load[0] and b.style == "cave" for b in lay.boards):
         hole = CAVE_HOLE.rgba()
         for y in range(img.height()):

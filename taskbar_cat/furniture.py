@@ -31,6 +31,12 @@ REST_VY = 200         # langsamer aufgekommen: liegen bleiben statt hüpfen
 MAX_THROW = 3000
 MAX_SUBSTEP_PX = 20
 SNAP_PX = 40          # Oberkante eines großen Kratzbaums so nah am oberen Rand: er hängt
+# Bällchen am großen Kratzbaum: Pendel, das sie mit der Pfote anschubst
+TOY_G = 900.0         # px/s², weicher als die echte Schwerkraft: sieht nach Faden aus
+TOY_DAMP = 1.5        # 1/s, so schnell kommt es zur Ruhe
+TOY_KICK = 7.0        # rad/s je Pfotenschlag
+TOY_MAX = 1.3         # rad, weiter schwingt es nicht
+TOY_STEP = 1 / 120    # s, Teilschritte fürs Pendel
 
 
 def half_width(kind: str, sprite: float) -> float:
@@ -212,6 +218,7 @@ class Furniture:
         self.spill = 0          # verschüttete Portionen
         self.spill_side = 1     # auf dieser Seite des Napfs liegt das Futter
         self._shoved = False    # rutscht oder fällt gerade, weil sie ihn geschubst hat
+        self.toy_swing: dict[tuple[str, int], list[float]] = {}   # (Baum, Bällchen) -> [Winkel, rad/s]
         self._world_cache: tuple | None = None
         self._tree_cache: tuple | None = None   # (Schlüssel, Welt ohne, Welt mit Bäumen)
         self._world: World | None = None         # letzte Welt aus world_with
@@ -297,6 +304,31 @@ class Furniture:
     def _right_bowl(self) -> None:
         self.tipped = self._shoved = False
         self.spill = 0
+
+    def bat_toy(self, kind: str, toy: int, direction: int) -> None:
+        """Mit der Pfote nach einem Bällchen schlagen: es pendelt in diese Richtung."""
+        swing = self.toy_swing.setdefault((kind, toy), [0.0, 0.0])
+        swing[1] += direction * TOY_KICK
+
+    def toy_angle(self, kind: str, toy: int) -> float:
+        swing = self.toy_swing.get((kind, toy))
+        return swing[0] if swing is not None else 0.0
+
+    def _swing_toys(self, dt: float, sprite: float) -> None:
+        for key, swing in list(self.toy_swing.items()):
+            tree = self.trees.get(key[0])
+            toys = tree.layout().toys if tree is not None else ()
+            if key[1] >= len(toys):                 # Baum weg oder neu gewürfelt
+                del self.toy_swing[key]
+                continue
+            length = max(4, toys[key[1]][2] + 1.5) * sprite / 32   # bis zur Mitte der Kugel
+            n = max(1, math.ceil(dt / TOY_STEP))
+            for _ in range(n):
+                h = dt / n
+                swing[1] += (-TOY_G / length * math.sin(swing[0]) - TOY_DAMP * swing[1]) * h
+                swing[0] = max(-TOY_MAX, min(TOY_MAX, swing[0] + swing[1] * h))
+            if abs(swing[0]) < 0.01 and abs(swing[1]) < 0.05:
+                del self.toy_swing[key]
 
     def shove_bowl(self, vx: float) -> None:
         """Die Katze schubst den Napf an; fällt er dabei herunter, landet er umgedreht."""
@@ -447,6 +479,7 @@ class Furniture:
                 b.step(base, dt, self.half_width(kind, sprite))
             else:
                 b.step(world, dt, half_width(kind, sprite))
+        self._swing_toys(dt, sprite)
         if self._shoved:
             if bowl.held or not bowl.placed:
                 self._shoved = False

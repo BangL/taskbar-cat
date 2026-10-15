@@ -586,7 +586,7 @@ def test_overlay_hides_her_behind_the_cave_wall(overlay):
     c._set("cave_in", cat_mod.CAVE_IN_S / 2)
     om.render(c, ww, 0, f)
     fronts = ov.window.property("bigtreeFronts")
-    assert [fr["src"].endswith("/cave:1/front") for fr in fronts] == [True]
+    assert [fr["src"].endswith("?load=cave:1&front=1") for fr in fronts] == [True]
     assert ov.window.property("catOpacity") == pytest.approx(0.5)
     wall = sprites.render_front(*size, False, 0, ("cave", 1))
     b = bigtree.cave_of(layout(*size))
@@ -596,3 +596,122 @@ def test_overlay_hides_her_behind_the_cave_wall(overlay):
     c._set("cave", 5)
     om.render(c, ww, 0, f)
     assert ov.window.property("bigtreeFronts") == [] and ov.window.property("catOpacity") == 1
+
+
+# --- Bällchen, Kratzspuren, Jagd über die Etagen ---
+
+def toy_tree():
+    """Stehender Baum, bei dem ein Bällchen über einem Brett in Pfotenhöhe hängt."""
+    for w_, h_ in SIZES:
+        lay = layout(w_, h_)
+        if any(k != bigtree.BASE_KEY for _, k in bigtree.reachable_toys(lay)):
+            return tree_world(size=(w_, h_))
+    raise AssertionError("kein Baum mit erreichbarem Bällchen")
+
+
+def test_reachable_toys_hang_just_above_their_board():
+    for w_, h_ in SIZES[::3]:
+        lay = layout(w_, h_)
+        for i, key in bigtree.reachable_toys(lay):
+            x, y, n, _ = lay.toys[i]
+            surf = lay.base_y if key == bigtree.BASE_KEY else next(b.y for b in lay.boards if b.key == key)
+            assert bigtree.TOY_REACH[0] <= surf - (y + n + 3) <= bigtree.TOY_REACH[1]
+
+
+def test_batted_toy_swings_and_comes_to_rest():
+    w, f = toy_tree()
+    f.bat_toy(KIND, 0, 1)
+    angles = []
+    for _ in range(int(8 / DT)):
+        f.tick(f.world_with(w, SPRITE), DT, SPRITE)
+        angles.append(f.toy_angle(KIND, 0))
+    assert max(angles) > 0.3 and min(angles) < -0.05         # pendelt hin und her
+    assert (KIND, 0) not in f.toy_swing                        # und kommt zur Ruhe
+    f.bat_toy(KIND, 0, -1)
+    f.resize_tree(KIND, 120, 380)
+    f.tick(f.world_with(w, SPRITE), DT, SPRITE)
+    assert all(i < len(f.trees[KIND].layout().toys) for _, i in f.toy_swing)
+
+
+def test_cat_bats_a_toy_from_the_board_below():
+    w, f = toy_tree()
+    ww = f.world_with(w, SPRITE)
+    kind_key = next((i, k) for i, k in bigtree.reachable_toys(f.trees[KIND].layout()) if k != bigtree.BASE_KEY)
+    p = next(q for q in ww.platforms if q.owner == f"{BOARD_ID}{KIND}:{kind_key[1]}")
+    batted = 0
+    for seed in range(10):
+        c = cat_near(f, w, seed=seed)
+        c.x = (p.x1 + p.x2) / 2
+        c._land(ww, p)
+        for _ in range(int(20 / DT)):
+            c.tick(DT, f.world_with(w, SPRITE), False)
+            if c.state == "swat":
+                assert c.frame_key(0)[0] == "swipe" and f.toy_swing   # das Bällchen pendelt
+                batted += 1
+                break
+    assert batted >= 3
+
+
+def test_scratching_frays_the_post():
+    w, f = tree_world()
+    c = cat_near(f, w)
+    ww = f.world_with(w, SPRITE)
+    assert c._seek(KIND, ww)
+    assert run_until(c, f, w, ("scratch",))
+    post = c._post[1]
+    run_until(c, f, w, ("idle_sit", "walk", "groom"), 10)
+    t = f.trees[KIND]
+    assert t.wear[post] > 0 and t.wear_levels() == ""         # erst nach langem Kratzen sichtbar
+    t.wear[post] = 0.6
+    assert t.wear_levels() == "0" * post + "2"
+    back = Tree.from_dict(json.loads(json.dumps(t.to_dict())))
+    assert back.wear_levels() == t.wear_levels() and "wear" not in t.variant("x")
+    assert "wear" not in Tree().to_dict()
+
+
+def test_frayed_posts_look_different(qapp):
+    from taskbar_cat import sprites
+    plain = sprites.render_bigtree(81, 180, False, 5)
+    frayed = sprites.render_bigtree(81, 180, False, 5, wear="3")
+    assert plain != frayed and plain.size() == frayed.size()
+    assert sprites.render_bigtree(81, 180, False, 5, toys=False) != plain or not layout(81, 180, False, 5).toys
+
+
+def test_play_hops_from_board_to_board_after_the_cursor():
+    w, f = tree_world()
+    ww = f.world_with(w, SPRITE)
+    boards = sorted((q for q in ww.platforms if q.owner.startswith(BOARD_ID)), key=lambda q: -q.y)
+    c = cat_near(f, w, x=boards[0].x1 - 60)
+    reached = set()
+    for target in boards[1:4]:
+        cx, cy = (target.x1 + target.x2) / 2, target.y - 40
+        for _ in range(int(6 / DT)):
+            c.tick(DT, f.world_with(w, SPRITE), False, cursor=(cx, cy), wiggling=True)
+            if c.platform is not None and c.platform.owner == target.owner:
+                reached.add(target.owner)
+                break
+    assert len(reached) >= 2
+
+
+def test_overlay_draws_swinging_toys(overlay):
+    from taskbar_cat.world import Output, Rect, World
+    om, ov = overlay
+    g = ov.screen.geometry()
+    w = World([Output("x", Rect(0, 0, g.width(), g.height()), Rect(0, 0, g.width(), g.height()))], [])
+    f = Furniture()
+    f.trees[KIND] = Tree(81, 180)
+    f.add_tree(g.width() / 2, 100)
+    settle(f, w)
+    c = Cat(Needs(), random.Random(0))
+    c.furniture = f
+    c.spawn(w)
+    om.render(c, f.world_with(w, c.sprite), 0, f)
+    toys = ov.window.property("bigtreeToys")
+    assert len(toys) == len(f.trees[KIND].layout().toys) > 0
+    assert ov.window.property("toyAngles") == [0.0] * len(toys)
+    f.trees[KIND].wear = [1.0]
+    f.bat_toy(KIND, 0, 1)
+    f.tick(f.world_with(w, c.sprite), DT, c.sprite)
+    om.render(c, f.world_with(w, c.sprite), 0, f)
+    assert ov.window.property("toyAngles")[0] > 0
+    assert "wear=3" in ov.window.property("bigtrees")[0]["src"]

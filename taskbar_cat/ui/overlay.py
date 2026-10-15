@@ -2,6 +2,7 @@
 import sys
 import time
 from pathlib import Path
+from urllib.parse import parse_qs
 
 from PyQt6.QtCore import QObject, QPoint, QRect, QUrl, Qt, pyqtSignal
 from PyQt6.QtGui import QGuiApplication, QImage, QRegion, QScreen
@@ -29,6 +30,8 @@ class _Overlay:
         self.furniture: tuple[list, list] = ([], [])
         self.bigtrees: list = []
         self.fronts: list = []
+        self.toys: list = []
+        self.toy_angles: list = []
 
     @property
     def origin(self) -> QPoint:
@@ -36,10 +39,10 @@ class _Overlay:
 
 
 class BigtreeImages(QQuickImageProvider):
-    """image://bigtree/<w>x<h>/<stand|hang>/<seed>[/<Brett>:<Pixel>[/front]]: große Kratzbäume
-    ohne Datei, damit das Ziehen am Mausrad fließend neue Größen liefert; der optionale Teil
-    lässt eine Hängematte tiefer durchhängen, "front" liefert nur ihren Teil vor der Katze
-    (sprites.render_front)."""
+    """image://bigtree/<w>x<h>/<stand|hang>/<seed>[?load=<Brett>:<Pixel>&wear=<Stufen>&front=1]:
+    große Kratzbäume ohne Datei, damit das Ziehen am Mausrad fließend neue Größen liefert.
+    load lässt eine Hängematte tiefer durchhängen, wear zeigt Kratzspuren, front liefert nur
+    den Teil vor der Katze (sprites.render_front). Ohne Bällchen, die zeichnet das QML."""
 
     def __init__(self):
         super().__init__(QQmlImageProviderBase.ImageType.Image)
@@ -48,23 +51,33 @@ class BigtreeImages(QQuickImageProvider):
     def requestImage(self, id_: str, size):
         img = self._cache.get(id_)
         if img is None:
-            dims, mode, seed, load, part = (id_.split("/") + ["stand", "0", "", ""])[:5]
+            path, _, query = id_.partition("?")
+            q = {k: v[0] for k, v in parse_qs(query).items()}
+            dims, mode, seed = (path.split("/") + ["stand", "0"])[:3]
             w, h = (int(v) for v in dims.split("x"))
-            key, _, px = load.rpartition(":")
+            key, _, px = q.get("load", "").rpartition(":")
             load = (key, int(px)) if key else None
             front = sprites.render_front(w, h, mode == "hang", int(seed), load) \
-                if part == "front" and load is not None else None
-            img = front if front is not None else sprites.render_bigtree(w, h, mode == "hang", int(seed), load)
+                if q.get("front") and load is not None else None
+            img = front if front is not None else sprites.render_bigtree(
+                w, h, mode == "hang", int(seed), load, toys=False, wear=q.get("wear", ""))
             if len(self._cache) > 64:
                 self._cache.clear()
             self._cache[id_] = img
         return img, img.size()
 
 
-def bigtree_source(tree: bigtree.Tree, load: tuple[str, int] | None = None) -> str:
+def bigtree_source(tree: bigtree.Tree, load: tuple[str, int] | None = None, front: bool = False) -> str:
     w, h = tree.size()
+    query = []
+    if load is not None and load[1] > 0:
+        query.append(f"load={load[0]}:{load[1]}")
+    if front:
+        query.append("front=1")
+    elif tree.wear_levels():
+        query.append(f"wear={tree.wear_levels()}")
     src = f"image://bigtree/{w}x{h}/{'hang' if tree.hanging else 'stand'}/{tree.seed}"
-    return f"{src}/{load[0]}:{load[1]}" if load is not None and load[1] > 0 else src
+    return f"{src}?{'&'.join(query)}" if query else src
 
 
 class OverlayManager(QObject):
@@ -103,6 +116,8 @@ class OverlayManager(QObject):
         self._furn_parts: dict[str, list[QRect]] = {}   # große Kratzbäume: Teile ohne Lücken
         self._bigtrees: list[dict] = []          # global, links oben, fürs QML
         self._fronts: list[dict] = []            # Hängematte vor der Katze (wie _bigtrees)
+        self._toys: list[dict] = []              # Bällchen der großen Kratzbäume (global)
+        self._toy_angles: list[float] = []       # deren Auslenkung (rad), gleiche Reihenfolge
         self._furn_pos: dict[str, tuple[float, float]] = {}
         self._lying: tuple[str, float] | None = None   # (Hängematte, seit wann sie drin liegt)
         self._sink: tuple[str, str, int] | None = None  # (Baum, Brett, Pixel) Durchhängen
@@ -162,6 +177,8 @@ class OverlayManager(QObject):
         self._furn_parts = {}
         self._bigtrees = []
         self._fronts = []
+        self._toys = []
+        self._toy_angles = []
         if furniture is None:
             return []
         out = []
@@ -180,12 +197,18 @@ class OverlayManager(QObject):
                 src = bigtree_source(tree, load)
                 self._bigtrees.append({"kind": kind, "src": src,
                                        "x": left, "y": top, "w": lay.w * s, "h": lay.h * s})
+                for i, (tx, ty, n, col) in enumerate(lay.toys):   # pendeln, also nicht im Bild
+                    self._toys.append({"x": left + (tx + 0.5) * s, "y": top + ty * s, "len": n * s, "s": s,
+                                       "color": sprites.TOY_COLORS[col % len(sprites.TOY_COLORS)].name(),
+                                       "string": sprites.SISAL_DARK.name(),
+                                       "outline": sprites.FURNITURE_OUTLINE.name()})
+                    self._toy_angles.append(furniture.toy_angle(kind, i))
                 behind = cat.behind()
                 for part in (load, (behind[1], 1) if behind is not None and behind[0] == kind else None):
                     front = bigtree.front_part(lay, *part) if part is not None else None
                     if front is not None:
                         fx, fy, fw, fh = front
-                        self._fronts.append({"src": f"{bigtree_source(tree)}/{part[0]}:{part[1]}/front",
+                        self._fronts.append({"src": bigtree_source(tree, part, front=True),
                                              "x": left + fx * s, "y": top + fy * s, "w": fw * s, "h": fh * s})
                 continue
             s = size / sprites.FRAME
@@ -263,6 +286,13 @@ class OverlayManager(QObject):
             if trees != ov.bigtrees:
                 ov.bigtrees = trees
                 w.setProperty("bigtrees", trees)
+            toys = [{**t, "x": t["x"] - o.x(), "y": t["y"] - o.y()} for t in self._toys]
+            if toys != ov.toys:
+                ov.toys = toys
+                w.setProperty("bigtreeToys", toys)
+            if self._toy_angles != ov.toy_angles:   # nur die Winkel: Repeater bleibt stehen
+                ov.toy_angles = list(self._toy_angles)
+                w.setProperty("toyAngles", ov.toy_angles)
             fronts = [{**t, "x": t["x"] - o.x(), "y": t["y"] - o.y()} for t in self._fronts]
             if fronts != ov.fronts:
                 ov.fronts = fronts
