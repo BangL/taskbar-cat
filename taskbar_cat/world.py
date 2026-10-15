@@ -165,9 +165,13 @@ class World:
             self._build_ceiling(w, wa, above)
 
     def _horizontal(self, w: Win, wa: Rect, above: list[Win], y: float) -> list[tuple[float, float]]:
+        """Waagerechte Stücke einer Kante, ohne die von Fenstern davor verdeckten.
+        Gleiche Oberkante zählt mit (<=): liegen zwei Leisten genau gleich hoch, bleibt im
+        Überlappungsbereich nur die vordere begehbar - zwei Kanten übereinander lassen die
+        Katze sonst zwischen ihnen hin und her springen."""
         pieces = [(max(w.rect.x, wa.x), min(w.rect.right, wa.right))]
         for other in above:
-            if other.rect.y < y < other.rect.bottom:
+            if other.rect.y <= y < other.rect.bottom:
                 pieces = _subtract(pieces, other.rect.x, other.rect.right)
         return [(x1, x2) for x1, x2 in pieces if x2 - x1 >= MIN_PIECE]
 

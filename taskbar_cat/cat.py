@@ -97,6 +97,12 @@ MOOD_NAME = {Mood.NORMAL: "normal", Mood.SAD: "sad", Mood.SICK: "sick"}
 CRAMPED_ANIM = {"walk": "crawl", "sit": "lie", "groom": "lie"}
 
 
+def _same_level(p: Platform, q: Platform) -> bool:
+    """Gleich hohe Kanten, die sich überschneiden: dorthin zu springen bringt nichts, sie
+    landet sofort wieder. So etwas entsteht aus zwei Fensterleisten auf derselben Höhe."""
+    return abs(q.y - p.y) <= 2 and q.x1 < p.x2 and p.x1 < q.x2
+
+
 def _free(world: World) -> list:
     """Monitore, auf denen die Katze sein darf."""
     return [o for o in world.outputs if o.name not in world.forbidden_outputs]
@@ -533,9 +539,14 @@ class Cat:
                 return
 
     def _landing(self, world: World, prev_y: float) -> Platform | None:
+        """Kante, auf der sie aufkommt. Die, von der sie abgesprungen ist, zählt nicht -
+        und auch keine, die gleich hoch daneben liegt: sonst steht sie nach dem Absprung
+        sofort wieder dort und springt auf der Stelle."""
         best = None
         for p in world.platforms:
             if p == self._ignore or (self._floors_only and not p.is_floor):
+                continue
+            if self._ignore is not None and _same_level(self._ignore, p):
                 continue
             if p.x1 <= self.x <= p.x2 and prev_y <= p.y <= self.y and (best is None or p.y < best.y):
                 best = p
@@ -904,7 +915,7 @@ class Cat:
         # Scheitel liegt 60 px über dem Ziel; Sprite muss darunter noch auf den Schirm passen
         top = world.bounds().y + self.sprite + 60
         reach = world.reachable(p, self.x, max_up=math.inf, max_side=self.cfg.jump_max_side)
-        return [q for q in reach if q.y >= top]
+        return [q for q in reach if q.y >= top and not _same_level(p, q)]
 
     def _jump_to(self, q: Platform, aim: float | None = None) -> None:
         """aim: möglichst dort landen (sonst zufällig in Reichweite)."""

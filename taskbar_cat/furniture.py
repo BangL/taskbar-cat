@@ -627,8 +627,8 @@ class Furniture:
                            for k, pos in used), sprite)
         if self._tree_cache is None or self._tree_cache[0] != key:
             wins, walls = [], []
-            for kind, pos in used:
-                w, wl = bigtree.structures(kind, self.trees[kind], pos, sprite)
+            for i, (kind, pos) in enumerate(used):
+                w, wl = bigtree.structures(kind, self.trees[kind], pos, sprite, bigtree.STACK + i)
                 wins += w
                 walls += wl
             out = World(base.outputs, base.windows + wins, base.blocked)

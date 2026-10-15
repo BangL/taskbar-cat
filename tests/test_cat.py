@@ -903,3 +903,23 @@ def test_jump_probability_zero_keeps_her_grounded():
     c.spawn(w)
     run(c, w, 120)
     assert c.platform.is_floor
+
+
+def test_jump_ignores_an_edge_at_the_same_height():
+    """Springt sie von einer Leiste ab, darf sie nicht sofort auf einer gleich hohen
+    daneben landen - sonst hängt sie im Sprung auf der Stelle fest."""
+    from taskbar_cat.cat import _same_level
+    from taskbar_cat.world import Platform
+    a = Platform(200, 900, 600, "a")
+    b = Platform(600, 1300, 600, "b")
+    assert _same_level(a, b) and _same_level(b, a)
+    assert not _same_level(a, Platform(900, 1300, 600, "c"))    # nur aneinander: Nachbar
+    assert not _same_level(a, Platform(600, 1300, 400, "d"))    # höher: echtes Ziel
+    c = make_cat()
+    w = world(win("a", 200, 600, 700, 400, stack=1), win("b", 600, 600, 700, 400, stack=2))
+    put_on(c, w, "a", 400)
+    c._ignore = a
+    c.y = 600
+    assert c._landing(w, 590) is None        # nicht auf der Nachbarkante aufkommen
+    c._ignore = None
+    assert c._landing(w, 590) is not None

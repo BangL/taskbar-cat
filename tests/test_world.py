@@ -71,6 +71,18 @@ def test_lower_window_does_not_occlude():
     assert [(p.x1, p.x2) for p in plats] == [(0, 1000)]
 
 
+def test_same_height_edges_do_not_overlap():
+    """Zwei Fensterleisten genau gleich hoch: im Überlappungsbereich bleibt nur die vordere.
+    Zwei Kanten übereinander lassen die Katze sonst zwischen ihnen hin und her springen."""
+    w = World(two_outputs(), [win("a", 200, 600, 700, 400, 1), win("b", 600, 600, 700, 400, 2)])
+    assert [(p.owner, p.x1, p.x2) for p in window_platforms(w)] == [("a", 200, 600), ("b", 600, 1300)]
+
+
+def test_same_height_edge_fully_covered_is_gone():
+    w = World(two_outputs(), [win("a", 300, 600, 400, 400, 1), win("b", 200, 600, 700, 400, 2)])
+    assert [(p.owner, p.x1, p.x2) for p in window_platforms(w)] == [("b", 200, 900)]
+
+
 def test_tiny_pieces_dropped():
     w = World(two_outputs(), [win("a", 0, 300, 1000, 400, 0), win("b", 30, 200, 970, 400, 1)])
     assert [p for p in window_platforms(w) if p.owner == "a"] == []

@@ -307,20 +307,23 @@ def geometry(tree: Tree, pos: tuple[float, float], sprite: float) -> tuple[float
     return pos[0] - lay.w / 2 * s, pos[1] - lay.h * s, s, lay
 
 
-def structures(kind: str, tree: Tree, pos, sprite: float) -> tuple[list[Win], list[Wall]]:
+def structures(kind: str, tree: Tree, pos, sprite: float, stack: int = STACK) -> tuple[list[Win], list[Wall]]:
     """Kanten (jede Fläche, stehend auch der Sockel) und Wände (Pfeiler, an denen sie zu einer
     Fläche hochklettert). Eine Wand reicht vom Ende des Pfeilers bis zur Fläche und gehört zu
-    deren Kante: oben angekommen, zieht sich die Katze dorthin hoch."""
+    deren Kante: oben angekommen, zieht sich die Katze dorthin hoch.
+
+    stack: je Baum ein eigener Wert, damit sich zwei Bäume nicht mit Kanten auf gleicher
+    Höhe überlappen (dann bleibt nur die des vorderen begehbar)."""
     left, top, s, lay = geometry(tree, pos, sprite)
     wins, walls = [], []
     if not lay.hanging:   # hängend ist der Sockel die Deckenplatte am oberen Rand
         wins.append(Win(f"{BOARD_ID}{kind}:{BASE_KEY}",
                         Rect(left + s, top + lay.base_y * s, (lay.w - 2) * s, BASE_H * s),
-                        STACK, False, False, True))
+                        stack, False, False, True))
     for b in lay.boards:
         owner = f"{BOARD_ID}{kind}:{b.key}"
         wins.append(Win(owner, Rect(left + b.x1 * s, top + b.y * s, (b.x2 - b.x1) * s, BOARD_H * s),
-                        STACK, False, False, True))
+                        stack, False, False, True))
         for i, side in b.posts:
             x, _, foot = lay.posts[i]                  # foot: unteres Ende des Pfeilers
             if (foot - b.y) * s < MIN_WALL:

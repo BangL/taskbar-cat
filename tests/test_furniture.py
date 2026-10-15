@@ -431,6 +431,26 @@ def test_cat_plays_with_yarn():
     assert c.furniture.position("yarn", w)[0] != start
 
 
+def test_cat_does_not_hop_between_edges_at_the_same_height():
+    """Gemeldet: zwei Fensterleisten gleich hoch und überlappend, das Knäuel darunter -
+    sie sprang nur noch auf der Stelle."""
+    from taskbar_cat.world import Win
+    w = world(Win("a", Rect(200, 600, 700, 400), 1, False, False),
+              Win("b", Rect(600, 600, 700, 400), 2, False, False))
+    f = standing(w, "yarn", 800, 1000)      # unter den Leisten, auf dem Boden
+    c = cat_with(w, f, x=700)
+    c.cfg = play_cfg(1)
+    c._land(w, next(p for p in w.platforms if p.owner == "a"))
+    jumps, xs = 0, []
+    for _ in range(int(60 / DT)):
+        was = c.state
+        c.tick(DT, w, False)
+        jumps += c.state == "jump" and was != "jump"
+        xs.append(c.x)
+    assert max(xs) - min(xs) > 500      # sie kommt herum
+    assert jumps < 20                   # und haengt nicht im Dauersprung
+
+
 def test_cat_hugs_the_yarn_and_kicks_it_out_of_the_corner():
     """In der Ecke stupst sie es nicht weiter gegen die Wand, sondern umschlingt es und
     tritt es heraus - auch wenn das Umschlingen sonst selten wäre."""
