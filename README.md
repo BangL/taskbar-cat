@@ -155,8 +155,6 @@ Einbau in fastfetch (`~/.config/fastfetch/config.jsonc`):
 - Füttern im Sprung macht sie beim nächsten Fressen 60 s träge, obwohl nicht überfüttert.
 - Laufen nutzt ungekapptes dt; nach einem Hänger der App läuft sie ein Stück zu weit.
 - Der Sensor sendet bei jeder Fenstergeometrie-Änderung das komplette JSON (unkritisch).
-- Die Input-Region besteht aus Rechtecken um Katze und Möbel, nicht aus dem Sprite-Alpha; an
-  durchsichtigen Stellen dieser Rechtecke gehen Klicks nicht durch (auf beiden Backends gleich).
 - GNOME: Bildschirmskalierung ungleich 100 % ist ungetestet (XWayland rechnet anders als Mutter).
 
 ## Lizenz

@@ -2,6 +2,10 @@
 
 Die Fensterhülle kommt vom Backend (Layer-Shell oder X11), der Inhalt steckt in
 CatScene.qml. Hier wird nur noch mit der Szene gesprochen, nicht mit dem Fenster.
+
+Die Mausflächen folgen der Silhouette der Sprites (siehe silhouette.py), nicht
+einem Kasten: auf durchsichtige Stellen geklickt, landet der Klick im Fenster
+darunter. Dieselben Flächen melden wir dem Backend als Input-Region.
 """
 import sys
 import time
@@ -14,13 +18,12 @@ from PyQt6.QtQml import QQmlComponent, QQmlEngine
 from .. import sprites
 from ..backend.base import Backend
 from ..cat import Cat
-from ..furniture import BOX, KINDS, Furniture
+from ..furniture import KINDS, Furniture
 from ..guard import guarded
 from ..interaction import DragTracker, RubDetector
 from ..paths import resource_file
 from ..world import World
-
-MASK_MARGIN = 8
+from .silhouette import Silhouettes
 
 
 class _Overlay:
@@ -28,7 +31,7 @@ class _Overlay:
         self.window = window
         self.scene = scene          # CatScene: alle Eigenschaften und Maus-Signale
         self.screen = screen
-        self.mask: tuple[QRect, ...] = ()
+        self.mask: tuple[QRect, ...] = ()   # Input-Region, lokal zum Monitor
         self.world: World | None = None
         self.furniture: tuple[list, list] = ([], [])
 
@@ -68,8 +71,10 @@ class OverlayManager(QObject):
         self._overlays: dict[QScreen, _Overlay] = {}
         self._drag = DragTracker()
         self._rub = RubDetector()
-        self._cat_rect = QRect()                # global, mit Rand
-        self._furn_rects: dict[str, QRect] = {}  # global, sichtbare Möbel
+        self._shapes = Silhouettes(atlas)             # Katze
+        self._furn_shapes = Silhouettes(furniture)    # Möbel
+        self._cat_rects: tuple[QRect, ...] = ()       # global, Silhouette der Katze
+        self._furn_rects: dict[str, tuple[QRect, ...]] = {}   # global, sichtbare Möbel
         self._furn_pos: dict[str, tuple[float, float]] = {}
         self._grabbed: str | None = None         # "cat", Möbelart oder None
         self._grab_d = (0.0, 0.0)
@@ -82,6 +87,7 @@ class OverlayManager(QObject):
     def set_atlas(self, atlas: Path) -> None:
         """Nach einem Farbwechsel das neue Spritesheet in alle Overlays geben."""
         self._atlas = QUrl.fromLocalFile(str(atlas))
+        self._shapes.load(atlas)   # andere Farbe, neue Datei: Silhouetten neu lesen
         for ov in self._overlays.values():
             ov.scene.setProperty("atlas", self._atlas)
 
@@ -127,7 +133,7 @@ class OverlayManager(QObject):
     def _furniture_frames(self, cat: Cat, world: World,
                           furniture: Furniture | None) -> list[tuple[str, float, float, str, str | None]]:
         """(Art, x, y, Frame hinter der Katze, Frame vor der Katze) je sichtbarem Möbel;
-        merkt sich nebenbei die Mausflächen."""
+        merkt sich nebenbei die Mausflächen (Silhouette aller gezeichneten Frames)."""
         self._furn_rects = {}
         self._furn_pos = {}
         if furniture is None:
@@ -139,29 +145,42 @@ class OverlayManager(QObject):
             if pos is None:
                 continue
             x, y = self._furn_pos[kind] = pos
-            s = size / sprites.FRAME
-            bx, by, bw, bh = (v * s for v in BOX[kind])
-            top = y - sprites.furniture_height(kind) * s
-            self._furn_rects[kind] = QRect(round(x - size / 2 + bx), round(top + by),
-                                           round(bw), round(bh))
             if kind == "bed":
-                out.append((kind, x, y, "bed_back", "bed_front" if cat.in_bed else None))
+                frames = (kind, x, y, "bed_back", "bed_front" if cat.in_bed else None)
             elif kind == "tree":
-                out.append((kind, x, y, "tree", None))
+                frames = (kind, x, y, "tree", None)
             elif kind == "yarn":   # Fadenlinien wechseln alle Achtel-Sprite beim Rollen
-                out.append((kind, x, y, ("yarn", "yarn_roll")[int(x / (size / 8)) % 2], None))
+                frames = (kind, x, y, ("yarn", "yarn_roll")[int(x / (size / 8)) % 2], None)
             else:
                 level = min(furniture.food, sprites.BOWL_LEVELS)
-                out.append((kind, x, y, f"bowl_{level}", None))
+                frames = (kind, x, y, f"bowl_{level}", None)
+            self._furn_rects[kind] = self._furniture_rects(frames, size)
+            out.append(frames)
         return out
+
+    def _furniture_rects(self, frames, size: int) -> tuple[QRect, ...]:
+        """Mausflächen eines Möbels: alle gezeichneten Frames zusammen."""
+        _, x, y, back, front = frames
+        scale = size / sprites.FRAME
+        left = round(x - size / 2)
+        rects: tuple[QRect, ...] = ()
+        for name in (back, front):
+            if name is None:
+                continue
+            fx, fy = sprites.furniture_origin(name)
+            h = sprites.furniture_height(name)
+            rects += self._furn_shapes.rects(fx, fy, sprites.FRAME, h,
+                                             left, round(y - h * scale), scale)
+        return rects
 
     def render(self, cat: Cat, world: World, t: float, furniture: Furniture | None = None) -> None:
         anim, mood, frame, flip = cat.frame_key(t)
         sx, sy = sprites.frame_origin(anim, mood, frame)
         size = cat.sprite
-        self._cat_rect = (QRect(round(cat.x - size / 2), round(cat.y - size), size, size)
-                          .adjusted(-MASK_MARGIN, -MASK_MARGIN, MASK_MARGIN, MASK_MARGIN)
-                          if cat.visible else QRect())
+        self._cat_rects = (self._shapes.rects(sx, sy, sprites.FRAME, sprites.FRAME,
+                                              round(cat.x - size / 2), round(cat.y - size),
+                                              size / sprites.FRAME, flip)
+                           if cat.visible else ())
         furn = self._furniture_frames(cat, world, furniture)
         for ov in self._overlays.values():
             o = ov.origin
@@ -190,9 +209,10 @@ class OverlayManager(QObject):
                 ov.furniture = (back, front)
                 w.setProperty("furnitureBack", back)
                 w.setProperty("furnitureFront", front)
-            local = [r.translated(-o.x(), -o.y()) for r in self._furn_rects.values()]
+            local = [r.translated(-o.x(), -o.y())
+                     for rects in self._furn_rects.values() for r in rects]
             if here:
-                local.append(sprite.adjusted(-MASK_MARGIN, -MASK_MARGIN, MASK_MARGIN, MASK_MARGIN))
+                local += [r.translated(-o.x(), -o.y()) for r in self._cat_rects]
             mask = tuple(r for r in local if r.intersects(screen))
             # Während eines Drags behält das greifende Overlay seine Region (Implicit Grab).
             if mask != ov.mask and not self._drag.is_dragging:
@@ -229,9 +249,10 @@ class OverlayManager(QObject):
     def _hit(self, gx: float, gy: float) -> str | None:
         """Was liegt unter dem Zeiger? Die Katze geht vor."""
         p = QPoint(round(gx), round(gy))
-        if self._cat_rect.contains(p):
+        if any(r.contains(p) for r in self._cat_rects):
             return "cat"
-        return next((k for k, r in self._furn_rects.items() if r.contains(p)), None)
+        return next((k for k, rects in self._furn_rects.items()
+                     if any(r.contains(p) for r in rects)), None)
 
     def _pressed(self, ov: _Overlay, x: float, y: float, button: int) -> None:
         gx, gy = x + ov.origin.x(), y + ov.origin.y()

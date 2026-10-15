@@ -30,6 +30,12 @@ Fensterhülle des Overlays (QML-Datei) samt Input-Region, und den Sensor.
 | Qt-Plugin | Wayland (Qt entscheidet) | `xcb` (XWayland) |
 | Fenster | `ui/overlay.qml`, Layer-Shell | `ui/overlay_x11.qml`, override-redirect |
 | Input-Region | `QWindow.setMask` | XShape `ShapeInput` (`backend/_x11.py`) |
+
+Die Flächen selbst sind backend-neutral: `ui/silhouette.py` liest den Alpha-Kanal des
+Atlas-Frames und liefert die deckenden Flächen als Rechtecke (zeilenweise Läufe,
+gleiche Zeilen zusammengefasst; eine sitzende Katze ergibt rund 30). Daraus entstehen
+sowohl die Input-Region als auch die Treffererkennung der Maus - auf durchsichtige
+Stellen geklickt, landet der Klick im Fenster darunter.
 | Sensor | KWin-Script über `org.kde.KWin` | Shell-Extension über `org.gnome.Shell.Extensions` |
 
 Grund für XWayland unter GNOME: Mutter kennt kein `wlr-layer-shell`, und native
@@ -55,6 +61,7 @@ taskbar_cat/
   backend/kde.py             KWin-Script laden/entladen
   backend/gnome.py           Extension einrichten/einschalten, XShape-Input-Region
   backend/_x11.py            XShape über ctypes (nur Input, nicht das Bild)
+  ui/silhouette.py           Mausflächen aus dem Alpha-Kanal der Sprites
   paths.py                   XDG-Verzeichnisse, mitgelieferte Dateien auflösen
   config.py                  einstellbare Werte + SPECS (Grenzen, Beschriftung)
   status.py                  Statustexte für Tray-Tooltip, Dialog und Konsole
@@ -163,7 +170,7 @@ Verhaltenszustände: `idle_sit`, `groom`, `vomit`, `walk`, `approach`, `jump`, `
 
 ### 4. UI
 
-- **Overlay** (`ui/CatScene.qml` + Hülle vom Backend + `overlay.py`): je Monitor ein transparentes Vollbildfenster. Unter KDE ein `LayerShell.Window`, Layer `overlay`, Anker alle Seiten, `exclusionZone: -1` (ignoriert Panels, Overlay deckt ganzen Monitor), keine Tastatur-Interaktivität; unter GNOME ein X11-Fenster mit `X11BypassWindowManagerHint`, Geometrie je Monitor von Hand gesetzt. Der gesamte Inhalt steckt in `CatScene.qml` und ist für beide gleich. Input-Region (`backend.set_input_region`) nur das Katzen-Rechteck (+8 px) und die Möbelkästen, sonst gehen Klicks durch. Nur das Overlay des Monitors, auf dem die Katze ist, zeigt sie (beim Übergang beide).
+- **Overlay** (`ui/CatScene.qml` + Hülle vom Backend + `overlay.py`): je Monitor ein transparentes Vollbildfenster. Unter KDE ein `LayerShell.Window`, Layer `overlay`, Anker alle Seiten, `exclusionZone: -1` (ignoriert Panels, Overlay deckt ganzen Monitor), keine Tastatur-Interaktivität; unter GNOME ein X11-Fenster mit `X11BypassWindowManagerHint`, Geometrie je Monitor von Hand gesetzt. Der gesamte Inhalt steckt in `CatScene.qml` und ist für beide gleich. Input-Region (`backend.set_input_region`) nur die Silhouette von Katze und Möbeln (`ui/silhouette.py`), sonst gehen Klicks durch - auch an durchsichtigen Stellen innerhalb des Sprite-Rechtecks. Dieselben Flächen entscheiden, was die Maus trifft. Nur das Overlay des Monitors, auf dem die Katze ist, zeigt sie (beim Übergang beide).
 - **Sprites** (`sprites.py`): 32x32-Pixel-Art, Darstellung 3x skaliert (Nearest Neighbour). Animationen: sitzen, putzen, kotzen, laufen und kriechen (je 4 Frames), springen, fallen, schlafen (Zzz), fressen (Napf), schnurren (Herz), zappeln, liegen (krank), klettern (4 Frames), hängen (2 Frames), lauern, Pfotenhieb, Jubel (je 2 Frames), Varianten für traurig (Ohren) und krank (Tönung). Blickrichtung durch Spiegeln. PNG wird beim ersten Start erzeugt und gecacht (Dateiname enthält Version, Fellfarbe und Tigerung). UFO (32x16) und Traktorstrahl (Trapez mit Verlauf, gestreckt) liegen als eigene PNGs daneben.
 - Ruheposen (sitzen, liegen, schlafen, schnurren, jubeln, lauern) liegen mit Zeile 30 auf; die Kontur darunter (Zeile 31) ist die Standlinie. Lag der Körper eine Zeile höher, klaffte zwischen Katze und Fensterkante eine Lücke.
 - Jeder Frame wird nach dem Zeichnen und noch einmal nach dem Setzen der Kontur von eingeschlossenen Lücken befreit (`_fill_holes`, Füllfarbe = häufigste Nachbarfarbe): einzelne durchsichtige Pixel mitten im Sprite lassen sonst den Desktop durchblitzen, und die Kontur selbst schließt solche Lücken erst ein.
