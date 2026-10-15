@@ -2,10 +2,12 @@ import QtQuick
 import QtQuick.Window
 import org.kde.layershell 1.0 as LayerShell
 
-// Transparentes Vollbild-Overlay für einen Monitor. Koordinaten sind lokal
-// zum Monitor; Python setzt Position/Frame und die Input-Region.
+// Overlay für Wayland-Compositors mit wlr-layer-shell (KDE Plasma, sway,
+// Hyprland): ein transparentes Vollbildfenster auf der Overlay-Ebene, das
+// keinen Platz reserviert. Inhalt und Maus liegen in CatScene.
 Window {
-    id: win
+    property alias scene: scene
+
     visible: false
     color: "transparent"
     flags: Qt.FramelessWindowHint | Qt.WindowDoesNotAcceptFocus
@@ -17,114 +19,8 @@ Window {
     LayerShell.Window.keyboardInteractivity: LayerShell.Window.KeyboardInteractivityNone
     LayerShell.Window.scope: "taskbar-cat"
 
-    property url atlas
-    property real catX: 0
-    property real catY: 0
-    property int srcX: 0
-    property int srcY: 0
-    property bool flip: false
-    property bool catVisible: false
-    property int spriteSize: 96
-    property var platforms: []
-    // Möbel: je {x, y (Mitte unten, lokal), sx, sy, h (Frame im Atlas)}; vorn = vor der Katze
-    property url furnitureAtlas
-    property var furnitureBack: []
-    property var furnitureFront: []
-    // UFO-Easter-Egg (Mitte der Untertasse, Strahl von beamTop bis beamBottom)
-    property url ufoSource
-    property url beamSource
-    property bool ufoVisible: false
-    property real ufoX: 0
-    property real ufoY: 0
-    property int ufoWidth: 150
-    property real ufoTime: 0
-    property bool beamOn: false
-    property real beamTop: 0
-    property real beamBottom: 0
-    property real beamWidth: 120
-
-    signal catPressed(real x, real y, int button)
-    signal catMoved(real x, real y, int buttons)
-    signal catReleased(real x, real y, int button)
-    signal catCanceled()
-
-    Repeater {
-        model: win.platforms
-        Rectangle {
-            x: modelData.x
-            y: modelData.y
-            width: modelData.w
-            height: modelData.h
-            color: modelData.color
-        }
-    }
-
-    Image {
-        source: win.beamSource
-        visible: win.ufoVisible && win.beamOn
-        opacity: 0.55 + 0.15 * Math.sin(win.ufoTime * 12)
-        x: Math.round(win.ufoX - win.beamWidth / 2)
-        y: Math.round(win.beamTop)
-        width: win.beamWidth
-        height: Math.max(0, win.beamBottom - win.beamTop)
-    }
-
-    Repeater {
-        model: win.furnitureBack
-        Image {
-            source: win.furnitureAtlas
-            sourceClipRect: Qt.rect(modelData.sx, modelData.sy, 32, modelData.h)
-            x: Math.round(modelData.x - width / 2)
-            y: Math.round(modelData.y - height)
-            width: win.spriteSize
-            height: win.spriteSize * modelData.h / 32
-            smooth: false
-        }
-    }
-
-    Image {
-        id: sprite
-        source: win.atlas
-        sourceClipRect: Qt.rect(win.srcX, win.srcY, 32, 32)
-        x: Math.round(win.catX - width / 2)
-        y: Math.round(win.catY - height)
-        width: win.spriteSize
-        height: win.spriteSize
-        smooth: false
-        mirror: win.flip
-        visible: win.catVisible
-    }
-
-    Repeater {
-        model: win.furnitureFront
-        Image {
-            source: win.furnitureAtlas
-            sourceClipRect: Qt.rect(modelData.sx, modelData.sy, 32, modelData.h)
-            x: Math.round(modelData.x - width / 2)
-            y: Math.round(modelData.y - height)
-            width: win.spriteSize
-            height: win.spriteSize * modelData.h / 32
-            smooth: false
-        }
-    }
-
-    Image {
-        source: win.ufoSource
-        visible: win.ufoVisible
-        x: Math.round(win.ufoX - width / 2)
-        y: Math.round(win.ufoY - height / 2 + 3 * Math.sin(win.ufoTime * 4))
-        width: win.ufoWidth
-        height: win.ufoWidth / 2
-        smooth: false
-    }
-
-    MouseArea {
+    CatScene {
+        id: scene
         anchors.fill: parent
-        acceptedButtons: Qt.LeftButton | Qt.RightButton
-        hoverEnabled: true
-        onPressed: (m) => win.catPressed(m.x, m.y, m.button)
-        onPositionChanged: (m) => win.catMoved(m.x, m.y, m.buttons)
-        onReleased: (m) => win.catReleased(m.x, m.y, m.button)
-        onCanceled: win.catCanceled()
     }
 }

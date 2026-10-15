@@ -1,13 +1,18 @@
-"""Ein Layer-Shell-Overlay pro Monitor: Katze zeichnen, Input-Region, Maus-Events."""
+"""Ein Overlay-Fenster pro Monitor: Katze zeichnen, Input-Region, Maus-Events.
+
+Die Fensterhülle kommt vom Backend (Layer-Shell oder X11), der Inhalt steckt in
+CatScene.qml. Hier wird nur noch mit der Szene gesprochen, nicht mit dem Fenster.
+"""
 import sys
 import time
 from pathlib import Path
 
 from PyQt6.QtCore import QObject, QPoint, QRect, QUrl, Qt, pyqtSignal
-from PyQt6.QtGui import QGuiApplication, QRegion, QScreen
+from PyQt6.QtGui import QGuiApplication, QScreen
 from PyQt6.QtQml import QQmlComponent, QQmlEngine
 
 from .. import sprites
+from ..backend.base import Backend
 from ..cat import Cat
 from ..furniture import BOX, KINDS, Furniture
 from ..guard import guarded
@@ -16,12 +21,12 @@ from ..paths import resource_file
 from ..world import World
 
 MASK_MARGIN = 8
-NO_INPUT = QRegion(QRect(-10, -10, 1, 1))  # leere Region hieße "ganzes Fenster"
 
 
 class _Overlay:
-    def __init__(self, window, screen: QScreen):
+    def __init__(self, window, scene, screen: QScreen):
         self.window = window
+        self.scene = scene          # CatScene: alle Eigenschaften und Maus-Signale
         self.screen = screen
         self.mask: tuple[QRect, ...] = ()
         self.world: World | None = None
@@ -43,16 +48,20 @@ class OverlayManager(QObject):
     furnitureMenu = pyqtSignal(str, QPoint)
 
     def __init__(self, engine: QQmlEngine, atlas: Path, debug: bool,
-                 ufo: tuple[Path, Path] | None = None, furniture: Path | None = None):
+                 ufo: tuple[Path, Path] | None = None, furniture: Path | None = None,
+                 backend: Backend | None = None):
         """ufo: Bilder für UFO und Traktorstrahl (sprites.ensure_ufo);
-        furniture: Möbel-Atlas (sprites.ensure_furniture)."""
+        furniture: Möbel-Atlas (sprites.ensure_furniture);
+        backend: liefert Fensterhülle und Input-Region (Standard: Layer-Shell)."""
         super().__init__()
+        self._backend = backend if backend is not None else Backend()
         self._engine = engine
         self._atlas = QUrl.fromLocalFile(str(atlas))
         self._ufo = tuple(QUrl.fromLocalFile(str(p)) for p in ufo) if ufo else (QUrl(), QUrl())
         self._furniture_atlas = QUrl.fromLocalFile(str(furniture)) if furniture else QUrl()
         self._debug = debug
-        qml = resource_file("ui", "overlay.qml")
+        resource_file("ui", "CatScene.qml")   # liegt neben der Hülle, auch aus dem Zip
+        qml = resource_file("ui", self._backend.overlay_qml)
         self._component = QQmlComponent(engine, QUrl.fromLocalFile(str(qml)))
         if self._component.isError():
             raise RuntimeError("\n".join(e.toString() for e in self._component.errors()))
@@ -74,30 +83,37 @@ class OverlayManager(QObject):
         """Nach einem Farbwechsel das neue Spritesheet in alle Overlays geben."""
         self._atlas = QUrl.fromLocalFile(str(atlas))
         for ov in self._overlays.values():
-            ov.window.setProperty("atlas", self._atlas)
+            ov.scene.setProperty("atlas", self._atlas)
 
     def set_debug(self, on: bool) -> None:
         self._debug = on
         for ov in self._overlays.values():
             ov.world = None  # erzwingt Neuzeichnen beim nächsten render
             if not on:
-                ov.window.setProperty("platforms", [])
+                ov.scene.setProperty("platforms", [])
 
     def _add(self, screen: QScreen) -> None:
-        win = self._component.createWithInitialProperties(
-            {"atlas": self._atlas, "ufoSource": self._ufo[0], "beamSource": self._ufo[1],
-             "furnitureAtlas": self._furniture_atlas})
+        win = self._component.create()
         if win is None:
             print("taskbar-cat: Overlay nicht erstellt:", self._component.errors(), file=sys.stderr)
             return
+        scene = win.property("scene")
+        if scene is None:
+            print("taskbar-cat: Overlay ohne Szene", file=sys.stderr)
+            win.deleteLater()
+            return
+        for name, value in (("atlas", self._atlas), ("ufoSource", self._ufo[0]),
+                            ("beamSource", self._ufo[1]),
+                            ("furnitureAtlas", self._furniture_atlas)):
+            scene.setProperty(name, value)
         win.setScreen(screen)
         win.setGeometry(screen.geometry())
-        ov = _Overlay(win, screen)
-        win.setMask(NO_INPUT)
-        win.catPressed.connect(guarded(lambda x, y, b, ov=ov: self._pressed(ov, x, y, b)))
-        win.catMoved.connect(guarded(lambda x, y, b, ov=ov: self._moved(ov, x, y, b)))
-        win.catReleased.connect(guarded(lambda x, y, b, ov=ov: self._released(ov, x, y, b)))
-        win.catCanceled.connect(guarded(self._cancel_drag))
+        ov = _Overlay(win, scene, screen)
+        self._backend.set_input_region(win, ())
+        scene.catPressed.connect(guarded(lambda x, y, b, ov=ov: self._pressed(ov, x, y, b)))
+        scene.catMoved.connect(guarded(lambda x, y, b, ov=ov: self._moved(ov, x, y, b)))
+        scene.catReleased.connect(guarded(lambda x, y, b, ov=ov: self._released(ov, x, y, b)))
+        scene.catCanceled.connect(guarded(self._cancel_drag))
         win.show()
         self._overlays[screen] = ov
 
@@ -153,7 +169,7 @@ class OverlayManager(QObject):
             sprite = QRect(round(lx - size / 2), round(ly - size), size, size)
             screen = QRect(QPoint(0, 0), ov.screen.geometry().size())
             here = cat.visible and sprite.intersects(screen)
-            w = ov.window
+            w = ov.scene
             w.setProperty("catVisible", here)
             w.setProperty("spriteSize", size)
             if here:
@@ -180,10 +196,7 @@ class OverlayManager(QObject):
             mask = tuple(r for r in local if r.intersects(screen))
             # Während eines Drags behält das greifende Overlay seine Region (Implicit Grab).
             if mask != ov.mask and not self._drag.is_dragging:
-                region = QRegion()
-                for r in mask:
-                    region = region.united(r)
-                w.setMask(region if mask else NO_INPUT)
+                self._backend.set_input_region(ov.window, mask)
                 ov.mask = mask
             if self._debug and world is not ov.world:
                 ov.world = world

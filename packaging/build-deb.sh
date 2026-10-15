@@ -51,17 +51,19 @@ Section: games
 Priority: optional
 Architecture: all
 Maintainer: BangL <henno.rickowski@gmail.com>
-Depends: python3 (>= 3.10), python3-pyqt6, python3-pyqt6.qtquick, qml6-module-org-kde-layershell, qt6-wayland
-Recommends: kwin-wayland
+Depends: python3 (>= 3.10), python3-pyqt6, python3-pyqt6.qtquick
+Recommends: qml6-module-org-kde-layershell, qt6-wayland, xwayland
+Suggests: kwin-wayland, gnome-shell
 Homepage: https://github.com/BangL/taskbar-cat
-Description: Pixel-Art-Tamagotchi-Katze fuer KDE Plasma 6 / Wayland
+Description: Pixel-Art-Tamagotchi-Katze fuer KDE Plasma 6 und GNOME
  Eine Katze lebt am unteren Rand der Arbeitsflaeche und auf den Oberkanten
  von Fenstern, ueber alle Monitore hinweg. Sie will gefuettert und
  gestreichelt werden, spielt mit dem Mauszeiger und wird bei
  Vernachlaessigung traurig oder krank.
  .
- Braucht KWin unter Wayland: ein KWin-Script meldet Fenster und
- Arbeitsflaechen per D-Bus an die Anwendung.
+ Unter KDE Plasma meldet ein KWin-Script die Fenster und braucht
+ qml6-module-org-kde-layershell; unter GNOME uebernimmt das eine
+ mitgelieferte Shell-Erweiterung, das Fenster laeuft dort ueber XWayland.
 CONTROL
 
 mkdir -p "$out"

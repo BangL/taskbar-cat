@@ -1,13 +1,43 @@
 # Taskbar-Cat
 
-Pixel-Art-Katze (Tamagotchi) für KDE Plasma 6 / Wayland. Lebt am unteren Rand der Arbeitsfläche und auf Fensteroberkanten aller Monitore; freischwebende Docks und Panels, die keinen Platz reservieren, sind ebenfalls begehbar.
+Pixel-Art-Katze (Tamagotchi) für KDE Plasma 6 und GNOME. Lebt am unteren Rand der Arbeitsfläche und auf Fensteroberkanten aller Monitore; freischwebende Docks und Panels, die keinen Platz reservieren, sind ebenfalls begehbar.
+
+## Arbeitsumgebungen
+
+Die Katze wählt beim Start einmal ein Backend; der Rest des Programms ist davon
+unabhängig. Erkannt wird über `XDG_CURRENT_DESKTOP`, erzwingen lässt es sich mit
+`TASKBAR_CAT_BACKEND=kde` bzw. `=gnome`.
+
+| | KDE Plasma (und sway, Hyprland) | GNOME |
+|---|---|---|
+| Fenster | Layer-Shell, Overlay-Ebene | X11 über XWayland, immer oben |
+| Sensor | KWin-Script | GNOME-Shell-Extension |
+| Zusatzpaket | `layer-shell-qt` | keins |
+
+Mutter kennt kein `wlr-layer-shell`, und native Wayland-Clients dürfen sich nicht
+selbst positionieren - unter GNOME läuft das Overlay deshalb über XWayland. Das
+ist auch unter einer GNOME-X11-Sitzung der richtige Weg.
 
 ## Voraussetzungen
 
-Systempakete (Arch): `python-pyqt6` (enthält QtCore, QtDBus, QtGui, QtQml, QtWidgets), `qt6-declarative`, `qt6-wayland`, `layer-shell-qt` (liefert das QML-Modul `org.kde.layershell`). Für die Tests: `python-pytest`.
+Systempakete (Arch): `python-pyqt6` (enthält QtCore, QtDBus, QtGui, QtQml,
+QtWidgets), `qt6-declarative`. Für die Tests: `python-pytest`.
+
+Unter KDE zusätzlich `qt6-wayland` und `layer-shell-qt` (liefert das QML-Modul
+`org.kde.layershell`); unter GNOME `xorg-xwayland`, das ohnehin fast immer da ist.
 
 Auf anderen Distributionen heißen die Pakete anders, etwa `python3-pyqt6` und
 `qml6-module-org-kde-layershell` unter Debian/Ubuntu.
+
+### GNOME: Extension
+
+Den Fenster-Sensor liefert eine GNOME-Shell-Extension. Die Katze richtet sie
+beim Start selbst ein (nach `~/.local/share/gnome-shell/extensions/`) und
+schaltet sie ein - **beim allerersten Mal muss man sich einmal neu anmelden**,
+weil GNOME neue Erweiterungen erst beim Start der Shell einliest. Bis dahin
+läuft die Katze nur am Bildschirmboden; `taskbar-cat` sagt das beim Start.
+
+Ohne Extension fehlen Fensterkanten und das Fangspiel, sonst funktioniert alles.
 
 ## Start
 
@@ -37,8 +67,8 @@ Debian und Ubuntu: `.deb` aus den
 
     sudo apt install ./taskbar-cat_*_all.deb
 
-Es braucht Plasma 6 mit KWin unter Wayland, also Debian 13 oder Ubuntu 24.10
-und neuer. Selbst bauen geht auch:
+Es braucht Plasma 6 mit KWin unter Wayland oder GNOME 45 und neuer, also
+Debian 13 oder Ubuntu 24.10 und neuer. Selbst bauen geht auch:
 
     python3 -m build --wheel
     packaging/build-deb.sh
@@ -107,8 +137,10 @@ Einbau in fastfetch (`~/.config/fastfetch/config.jsonc`):
 - Einstellungen: `$XDG_CONFIG_HOME/taskbar-cat/config.json` (Standard `~/.config/...`)
 - Autostart: `$XDG_CONFIG_HOME/autostart/taskbar-cat.desktop`
 - Sprite-Cache: `$XDG_CACHE_HOME/taskbar-cat/` (Standard `~/.cache/...`), je Fellfarbe und Tigerung ein Spritesheet
-- KWin-Sensor und Desktop-Vorlage: `taskbar_cat/kwin/`, `taskbar_cat/data/` (Paketdateien)
-- KWin-Script-Logs: `journalctl --user -f | grep -i kwin`
+- Sensoren und Desktop-Vorlage: `taskbar_cat/kwin/`, `taskbar_cat/gnome/`, `taskbar_cat/data/` (Paketdateien)
+- GNOME-Extension (eingerichtet): `~/.local/share/gnome-shell/extensions/taskbar-cat@bangl.github.io/`
+- Sensor-Logs: `journalctl --user -f | grep -iE 'kwin|gnome-shell'`
+- Weltmodell des Sensors prüfen: `python3 -m taskbar_cat.bus --dump` (vorher die laufende Katze beenden)
 - Icon neu erzeugen: `python3 -m taskbar_cat.sprites --icon ~/pfad/icon.png` (`--size`, `--mood`, `--color`, `--tabby`, `--atlas`; `--help` zeigt alles)
 
 ## Tests
@@ -122,7 +154,10 @@ Einbau in fastfetch (`~/.config/fastfetch/config.jsonc`):
 - "Schlafen schicken" wirkt nicht, wenn die Energie >= 80 ist.
 - Füttern im Sprung macht sie beim nächsten Fressen 60 s träge, obwohl nicht überfüttert.
 - Laufen nutzt ungekapptes dt; nach einem Hänger der App läuft sie ein Stück zu weit.
-- KWin-Script sendet bei jeder Fenstergeometrie-Änderung das komplette JSON (unkritisch).
+- Der Sensor sendet bei jeder Fenstergeometrie-Änderung das komplette JSON (unkritisch).
+- Die Input-Region besteht aus Rechtecken um Katze und Möbel, nicht aus dem Sprite-Alpha; an
+  durchsichtigen Stellen dieser Rechtecke gehen Klicks nicht durch (auf beiden Backends gleich).
+- GNOME: Bildschirmskalierung ungleich 100 % ist ungetestet (XWayland rechnet anders als Mutter).
 
 ## Lizenz
 

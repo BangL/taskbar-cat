@@ -1,4 +1,8 @@
-"""D-Bus: Service für den KWin-Sensor, KWin-Script laden/entladen, Bildschirmsperre."""
+"""D-Bus: Service für den Sensor, Sensor überwachen, Bildschirmsperre.
+
+Welcher Sensor läuft (KWin-Script oder GNOME-Extension) entscheidet das Backend;
+hier wird nur noch das gemeinsame Protokoll ausgewertet.
+"""
 import json
 import os
 import sys
@@ -8,13 +12,13 @@ from typing import Callable
 from PyQt6.QtCore import QObject, QTimer, pyqtClassInfo, pyqtSignal, pyqtSlot
 from PyQt6.QtDBus import QDBusConnection, QDBusInterface, QDBusMessage
 
+from . import backend as backends
+from .backend.base import Backend
 from .config import Config
 from .guard import guarded
-from .paths import sensor_script
 from .world import World
 
 SERVICE = "de.bangl.TaskbarCat"
-SCRIPT_NAME = "taskbar-cat-sensor"
 WATCHDOG_MS = 10_000
 RELOAD_MIN_INTERVAL = 60
 
@@ -47,7 +51,7 @@ class _Adaptor(QObject):
 class CatBus(QObject):
     lockChanged = pyqtSignal(bool)
 
-    def __init__(self):
+    def __init__(self, backend: Backend | None = None):
         super().__init__()
         self.adaptor = _Adaptor(self)
         self._pending: str | None = None
@@ -59,6 +63,7 @@ class CatBus(QObject):
         self.locked = False
         self.status_provider: Callable[[], dict] | None = None
         self._bus = QDBusConnection.sessionBus()
+        self.backend = backend if backend is not None else backends.create(self._bus)
         self._watchdog = QTimer(self)
         self._watchdog.timeout.connect(guarded(self._check_sensor))
 
@@ -107,27 +112,17 @@ class CatBus(QObject):
         samples, self._cursor_samples = self._cursor_samples, []
         return samples
 
-    def _scripting(self) -> QDBusInterface:
-        return QDBusInterface("org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting", self._bus)
-
     def load_sensor(self) -> None:
         self._last_load = time.monotonic()
         self._watchdog.start(WATCHDOG_MS)
-        s = self._scripting()
-        s.call("unloadScript", SCRIPT_NAME)
-        reply = s.call("loadScript", str(sensor_script()), SCRIPT_NAME)
-        if reply.type() == QDBusMessage.MessageType.ErrorMessage:
-            print(f"taskbar-cat: loadScript fehlgeschlagen: {reply.errorMessage()}", file=sys.stderr)
-            return
-        s.call("start")
+        self.backend.start_sensor()
 
     def unload_sensor(self) -> None:
         self._watchdog.stop()
-        self._scripting().call("unloadScript", SCRIPT_NAME)
+        self.backend.stop_sensor()
 
     def _check_sensor(self) -> None:
-        reply = self._scripting().call("isScriptLoaded", SCRIPT_NAME)
-        loaded = reply.type() == QDBusMessage.MessageType.ReplyMessage and bool(reply.arguments()[0])
+        loaded = self.backend.sensor_loaded()
         if (not loaded or not self._received) and time.monotonic() - self._last_load >= RELOAD_MIN_INTERVAL:
             print("taskbar-cat: Sensor fehlt, lade neu", file=sys.stderr)
             self._received = False
@@ -191,8 +186,9 @@ def _main(argv: list[str]) -> int:
 
     p = argparse.ArgumentParser(
         prog="python3 -m taskbar_cat.bus",
-        description="Fenster-Sensor einzeln testen: lädt das KWin-Script und gibt "
-                    "Monitore, Arbeitsflächen und begehbare Kanten aus.")
+        description="Fenster-Sensor einzeln testen: startet den Sensor des Backends "
+                    "(KWin-Script oder GNOME-Extension) und gibt Monitore, "
+                    "Arbeitsflächen und begehbare Kanten aus.")
     p.add_argument("--dump", action="store_true", help="Weltmodell zweimal pro Sekunde ausgeben")
     p.add_argument("--version", action="version", version=f"taskbar-cat {__version__}")
     args = p.parse_args(argv[1:])

@@ -1,4 +1,4 @@
-"""Taskbar-Cat: Pixel-Art-Tamagotchi-Katze für KDE Plasma 6 / Wayland."""
+"""Taskbar-Cat: Pixel-Art-Tamagotchi-Katze für KDE Plasma 6 und GNOME."""
 from importlib.metadata import PackageNotFoundError, version
 
 try:

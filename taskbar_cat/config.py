@@ -72,7 +72,7 @@ class Config:
     p_groom: float = 0.35
     p_yarn: float = 0.2
     p_tree: float = 0.15
-    # Monitore, auf denen die Katze nicht laufen soll (KWin-Namen wie "DP-1").
+    # Monitore, auf denen die Katze nicht laufen soll (Anschlussnamen wie "DP-1").
     # Nicht in SPECS: die Auswahl entsteht erst zur Laufzeit aus den vorhandenen Monitoren.
     blocked_outputs: list[str] = field(default_factory=list)
 

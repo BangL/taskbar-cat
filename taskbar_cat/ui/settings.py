@@ -21,7 +21,7 @@ def _decimals(step: float) -> int:
 
 
 def screen_choices(app=None) -> list[tuple[str, str]]:
-    """(KWin-Name, Beschriftung) je angeschlossenem Monitor."""
+    """(Anschlussname, Beschriftung) je angeschlossenem Monitor."""
     from PyQt6.QtGui import QGuiApplication
 
     app = app or QGuiApplication.instance()

@@ -1,5 +1,7 @@
 import json
 
+from taskbar_cat import bus as bus_module
+from taskbar_cat.backend.base import Backend
 from taskbar_cat.bus import CatBus
 from taskbar_cat.config import Config
 
@@ -29,17 +31,38 @@ def test_invalid_json_ignored(qapp):
     assert not bus.sensor_ok
 
 
-class _FailingScripting:
-    def call(self, method, *args):
-        from PyQt6.QtDBus import QDBusMessage
-        return QDBusMessage.createError("org.example.Fail", "nope")
+class _FailingBackend(Backend):
+    name = "kaputt"
+
+    def __init__(self):
+        super().__init__(None)
+        self.started = 0
+
+    def start_sensor(self) -> None:
+        self.started += 1
+
+    def sensor_loaded(self) -> bool:
+        return False
 
 
 def test_watchdog_runs_even_if_load_fails(qapp):
-    bus = CatBus()
-    bus._scripting = lambda: _FailingScripting()
+    bus = CatBus(_FailingBackend())
     bus.load_sensor()
     assert bus._watchdog.isActive()
+
+
+def test_watchdog_reloads_a_missing_sensor(qapp):
+    backend = _FailingBackend()
+    bus = CatBus(backend)
+    bus.load_sensor()
+    assert backend.started == 1
+    bus._last_load -= 2 * bus_module.RELOAD_MIN_INTERVAL   # Mindestabstand überspringen
+    bus._check_sensor()
+    assert backend.started == 2
+
+
+def test_default_backend_comes_from_the_environment(qapp):
+    assert CatBus().backend.name == "kde"
 
 
 def test_cursor_samples(qapp):
