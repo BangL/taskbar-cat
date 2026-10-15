@@ -1,0 +1,8 @@
+{
+    "uuid": "taskbar-cat@bangl.github.io",
+    "name": "Taskbar-Cat Sensor",
+    "description": "Meldet Monitore, Arbeitsflächen, begehbare Fenster und den Mauszeiger an Taskbar-Cat. Ohne die laufende Katze tut die Erweiterung nichts.",
+    "shell-version": ["45", "46", "47", "48", "49", "50", "51"],
+    "session-modes": ["user"],
+    "url": "https://github.com/BangL/taskbar-cat"
+}

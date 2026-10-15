@@ -4,14 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "taskbar-cat"
-version = "1.7.1"
-description = "Pixel-Art-Tamagotchi-Katze für KDE Plasma 6 / Wayland"
+version = "1.8.1"
+description = "Pixel-Art-Tamagotchi-Katze für KDE Plasma 6 und GNOME"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
 requires-python = ">=3.10"
 authors = [{ name = "BangL" }]
-keywords = ["kde", "plasma", "kwin", "wayland", "desktop-pet", "tamagotchi"]
+keywords = ["kde", "plasma", "kwin", "gnome", "wayland", "desktop-pet", "tamagotchi"]
 classifiers = [
     "Environment :: X11 Applications :: Qt",
     "Operating System :: POSIX :: Linux",
@@ -27,7 +27,7 @@ test = ["pytest>=7"]
 taskbar-cat = "taskbar_cat.__main__:main"
 
 [tool.setuptools]
-packages = ["taskbar_cat", "taskbar_cat.ui"]
+packages = ["taskbar_cat", "taskbar_cat.backend", "taskbar_cat.ui"]
 
 [tool.setuptools.package-data]
-taskbar_cat = ["kwin/*.js", "ui/*.qml", "data/*.desktop"]
+taskbar_cat = ["kwin/*.js", "gnome/*.js", "gnome/*.json", "ui/*.qml", "data/*.desktop"]

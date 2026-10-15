@@ -26,6 +26,29 @@ def test_overlay_qml_is_shipped():
     assert paths.resource_file("ui", "overlay.qml").is_file()
 
 
+def test_both_window_shells_and_the_shared_scene_are_shipped():
+    scene = paths.resource_file("ui", "CatScene.qml")
+    assert scene.is_file()
+    for name in ("overlay.qml", "overlay_x11.qml"):
+        shell = paths.resource_file("ui", name)
+        # die Hülle bindet die Szene ein und muss deshalb neben ihr liegen
+        assert "CatScene" in shell.read_text(encoding="utf-8")
+        assert shell.parent == scene.parent
+
+
+def test_extension_sources_are_shipped():
+    sources = paths.extension_sources()
+    assert set(sources) == set(paths.EXTENSION_FILES)
+    assert "de.bangl.TaskbarCat" in sources["extension.js"].read_text(encoding="utf-8")
+    import json
+    assert json.loads(sources["metadata.json"].read_text(encoding="utf-8"))["uuid"] == paths.EXTENSION_UUID
+
+
+def test_extension_dir_is_where_gnome_looks(monkeypatch, tmp_path):
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    assert paths.extension_dir() == tmp_path / "gnome-shell/extensions" / paths.EXTENSION_UUID
+
+
 def test_resource_unpacks_when_not_on_disk(tmp_path, monkeypatch):
     """Zip-Import: Datei landet im Cache und ist dort ein echter Pfad."""
     class _Zipish:

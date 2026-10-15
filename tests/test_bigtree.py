@@ -550,7 +550,7 @@ def test_overlay_draws_trees_and_takes_the_wheel(overlay):
     c.x = 50
     settle(f, w)
     om.render(c, f.world_with(w, c.sprite), 0, f)
-    assert [t["kind"] for t in ov.window.property("bigtrees")] == [KIND, k2]
+    assert [t["kind"] for t in ov.scene.property("bigtrees")] == [KIND, k2]
     post = om._furn_parts[k2][1].center()
     assert om._hit(post.x(), post.y()) == k2
     gap = om._furn_parts[k2][0].center() - QPoint(0, 2 * c.sprite)   # Luft über dem Sockel
@@ -585,9 +585,9 @@ def test_overlay_hides_her_behind_the_cave_wall(overlay):
     c._cave = KIND
     c._set("cave_in", cat_mod.CAVE_IN_S / 2)
     om.render(c, ww, 0, f)
-    fronts = ov.window.property("bigtreeFronts")
+    fronts = ov.scene.property("bigtreeFronts")
     assert [fr["src"].endswith("?load=cave:1&front=1") for fr in fronts] == [True]
-    assert ov.window.property("catOpacity") == pytest.approx(0.5)
+    assert ov.scene.property("catOpacity") == pytest.approx(0.5)
     wall = sprites.render_front(*size, False, 0, ("cave", 1))
     b = bigtree.cave_of(layout(*size))
     assert wall.pixelColor(wall.width() // 2, wall.height() - 3).alpha() == 0    # Tür offen
@@ -595,7 +595,7 @@ def test_overlay_hides_her_behind_the_cave_wall(overlay):
     assert (wall.width(), wall.height()) == (b.x2 - b.x1, b.sag)
     c._set("cave", 5)
     om.render(c, ww, 0, f)
-    assert ov.window.property("bigtreeFronts") == [] and ov.window.property("catOpacity") == 1
+    assert ov.scene.property("bigtreeFronts") == [] and ov.scene.property("catOpacity") == 1
 
 
 # --- Bällchen, Kratzspuren, Jagd über die Etagen ---
@@ -715,15 +715,15 @@ def test_overlay_draws_swinging_toys(overlay):
     c.furniture = f
     c.spawn(w)
     om.render(c, f.world_with(w, c.sprite), 0, f)
-    toys = ov.window.property("bigtreeToys")
+    toys = ov.scene.property("bigtreeToys")
     assert len(toys) == len(f.trees[KIND].layout().toys) > 0
-    assert ov.window.property("toyAngles") == [0.0] * len(toys)
+    assert ov.scene.property("toyAngles") == [0.0] * len(toys)
     f.trees[KIND].wear = [1.0]
     f.bat_toy(KIND, 0, 1)
     f.tick(f.world_with(w, c.sprite), DT, c.sprite)
     om.render(c, f.world_with(w, c.sprite), 0, f)
-    assert ov.window.property("toyAngles")[0] > 0
-    assert "wear=3" in ov.window.property("bigtrees")[0]["src"]
+    assert ov.scene.property("toyAngles")[0] > 0
+    assert "wear=3" in ov.scene.property("bigtrees")[0]["src"]
 
 
 @pytest.mark.parametrize("name, state", [("p_scratch", "scratch"), ("p_cave", "cave_in"), ("p_toy", "swat")])
@@ -759,13 +759,13 @@ def test_overlay_draws_flies_over_spilled_food(overlay):
     c.furniture = f
     c.spawn(w)
     om.render(c, w, 1.0, f)
-    pos = ov.window.property("flyPos")
-    assert ov.window.property("flyCount") == 3 and len(pos) == 9
+    pos = ov.scene.property("flyPos")
+    assert ov.scene.property("flyCount") == 3 and len(pos) == 9
     assert all(abs(pos[3 * i] - 300) < 3 * c.sprite / 32 * 20 for i in range(3))
     assert all(pos[3 * i + 1] < f.bodies["bowl"].y for i in range(3))
     f.spill_age += 0.2                                         # ihre Uhr: so lange liegt es da
     om.render(c, w, 1.2, f)
-    assert ov.window.property("flyPos") != pos                 # sie fliegen herum
+    assert ov.scene.property("flyPos") != pos                 # sie fliegen herum
     f.tipped = False
     om.render(c, w, 1.4, f)
-    assert ov.window.property("flyCount") == 0
+    assert ov.scene.property("flyCount") == 0

@@ -5,6 +5,8 @@ from pathlib import Path
 
 APP = "taskbar-cat"
 SENSOR_JS = "taskbar-cat-sensor.js"
+EXTENSION_UUID = "taskbar-cat@bangl.github.io"
+EXTENSION_FILES = ("metadata.json", "extension.js")
 
 
 def _xdg(var: str, fallback: str) -> Path:
@@ -50,7 +52,8 @@ def bigtree_variants_file() -> Path:
 def resource_file(*parts: str) -> Path:
     """Mitgelieferte Datei als echter Pfad.
 
-    KWin (loadScript) und QQmlComponent brauchen Dateipfade, keine Streams. Liegt
+    KWin (loadScript), GNOME (Extension) und QQmlComponent brauchen Dateipfade,
+    keine Streams. Liegt
     das Paket als Zip im Import-Pfad, wird die Datei einmalig in den Cache entpackt.
     """
     res = resources.files(__package__).joinpath(*parts)
@@ -70,3 +73,15 @@ def resource_file(*parts: str) -> Path:
 
 def sensor_script() -> Path:
     return resource_file("kwin", SENSOR_JS)
+
+
+def extension_dir() -> Path:
+    """Zielverzeichnis der GNOME-Shell-Extension (nicht unter taskbar-cat/)."""
+    base = os.environ.get("XDG_DATA_HOME", "")
+    root = Path(base) if os.path.isabs(base) else Path.home() / ".local/share"
+    return root / "gnome-shell" / "extensions" / EXTENSION_UUID
+
+
+def extension_sources() -> dict[str, Path]:
+    """Mitgelieferte Extension-Dateien, Name -> Pfad."""
+    return {name: resource_file("gnome", name) for name in EXTENSION_FILES}

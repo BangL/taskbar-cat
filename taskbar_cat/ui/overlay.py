@@ -1,31 +1,39 @@
-"""Ein Layer-Shell-Overlay pro Monitor: Katze zeichnen, Input-Region, Maus-Events."""
+"""Ein Overlay-Fenster pro Monitor: Katze zeichnen, Input-Region, Maus-Events.
+
+Die Fensterhülle kommt vom Backend (Layer-Shell oder X11), der Inhalt steckt in
+CatScene.qml. Hier wird nur noch mit der Szene gesprochen, nicht mit dem Fenster.
+
+Die Mausflächen folgen der Silhouette der Sprites (siehe silhouette.py), nicht
+einem Kasten: auf durchsichtige Stellen geklickt, landet der Klick im Fenster
+darunter. Dieselben Flächen melden wir dem Backend als Input-Region.
+"""
 import sys
 import time
 from pathlib import Path
 from urllib.parse import parse_qs
 
 from PyQt6.QtCore import QObject, QPoint, QRect, QUrl, Qt, pyqtSignal
-from PyQt6.QtGui import QGuiApplication, QImage, QRegion, QScreen
+from PyQt6.QtGui import QGuiApplication, QImage, QScreen
 from PyQt6.QtQml import QQmlComponent, QQmlEngine, QQmlImageProviderBase
 from PyQt6.QtQuick import QQuickImageProvider
 
 from .. import bigtree, sprites
+from ..backend.base import Backend
 from ..cat import Cat
-from ..furniture import BOX, Furniture, fly_path
+from ..furniture import Furniture, fly_path
 from ..guard import guarded
 from ..interaction import DragTracker, RubDetector
 from ..paths import resource_file
 from ..world import World
-
-MASK_MARGIN = 8
-NO_INPUT = QRegion(QRect(-10, -10, 1, 1))  # leere Region hieße "ganzes Fenster"
+from .silhouette import Silhouettes
 
 
 class _Overlay:
-    def __init__(self, window, screen: QScreen):
+    def __init__(self, window, scene, screen: QScreen):
         self.window = window
+        self.scene = scene          # CatScene: alle Eigenschaften und Maus-Signale
         self.screen = screen
-        self.mask: tuple[QRect, ...] = ()
+        self.mask: tuple[QRect, ...] = ()   # Input-Region, lokal zum Monitor
         self.world: World | None = None
         self.furniture: tuple[list, list] = ([], [])
         self.bigtrees: list = []
@@ -92,10 +100,13 @@ class OverlayManager(QObject):
     furnitureWheel = pyqtSignal(str, float, float)    # großer Kratzbaum, Mausrad x/y
 
     def __init__(self, engine: QQmlEngine, atlas: Path, debug: bool,
-                 ufo: tuple[Path, Path] | None = None, furniture: Path | None = None):
+                 ufo: tuple[Path, Path] | None = None, furniture: Path | None = None,
+                 backend: Backend | None = None):
         """ufo: Bilder für UFO und Traktorstrahl (sprites.ensure_ufo);
-        furniture: Möbel-Atlas (sprites.ensure_furniture)."""
+        furniture: Möbel-Atlas (sprites.ensure_furniture);
+        backend: liefert Fensterhülle und Input-Region (Standard: Layer-Shell)."""
         super().__init__()
+        self._backend = backend if backend is not None else Backend()
         self._engine = engine
         self._atlas = QUrl.fromLocalFile(str(atlas))
         self._ufo = tuple(QUrl.fromLocalFile(str(p)) for p in ufo) if ufo else (QUrl(), QUrl())
@@ -104,15 +115,18 @@ class OverlayManager(QObject):
         if engine.imageProvider("bigtree") is None:
             self._bigtree_images = BigtreeImages()   # Engine hält keine eigene Referenz
             engine.addImageProvider("bigtree", self._bigtree_images)
-        qml = resource_file("ui", "overlay.qml")
+        resource_file("ui", "CatScene.qml")   # liegt neben der Hülle, auch aus dem Zip
+        qml = resource_file("ui", self._backend.overlay_qml)
         self._component = QQmlComponent(engine, QUrl.fromLocalFile(str(qml)))
         if self._component.isError():
             raise RuntimeError("\n".join(e.toString() for e in self._component.errors()))
         self._overlays: dict[QScreen, _Overlay] = {}
         self._drag = DragTracker()
         self._rub = RubDetector()
-        self._cat_rect = QRect()                # global, mit Rand
-        self._furn_rects: dict[str, QRect] = {}  # global, sichtbare Möbel
+        self._shapes = Silhouettes(atlas)             # Katze
+        self._furn_shapes = Silhouettes(furniture)    # Möbel
+        self._cat_rects: tuple[QRect, ...] = ()       # global, Silhouette der Katze
+        self._furn_rects: dict[str, tuple[QRect, ...]] = {}   # global, sichtbare Möbel
         self._furn_parts: dict[str, list[QRect]] = {}   # große Kratzbäume: Teile ohne Lücken
         self._bigtrees: list[dict] = []          # global, links oben, fürs QML
         self._fronts: list[dict] = []            # Hängematte vor der Katze (wie _bigtrees)
@@ -133,32 +147,40 @@ class OverlayManager(QObject):
     def set_atlas(self, atlas: Path) -> None:
         """Nach einem Farbwechsel das neue Spritesheet in alle Overlays geben."""
         self._atlas = QUrl.fromLocalFile(str(atlas))
+        self._shapes.load(atlas)   # andere Farbe, neue Datei: Silhouetten neu lesen
         for ov in self._overlays.values():
-            ov.window.setProperty("atlas", self._atlas)
+            ov.scene.setProperty("atlas", self._atlas)
 
     def set_debug(self, on: bool) -> None:
         self._debug = on
         for ov in self._overlays.values():
             ov.world = None  # erzwingt Neuzeichnen beim nächsten render
             if not on:
-                ov.window.setProperty("platforms", [])
+                ov.scene.setProperty("platforms", [])
 
     def _add(self, screen: QScreen) -> None:
-        win = self._component.createWithInitialProperties(
-            {"atlas": self._atlas, "ufoSource": self._ufo[0], "beamSource": self._ufo[1],
-             "furnitureAtlas": self._furniture_atlas})
+        win = self._component.create()
         if win is None:
             print("taskbar-cat: Overlay nicht erstellt:", self._component.errors(), file=sys.stderr)
             return
+        scene = win.property("scene")
+        if scene is None:
+            print("taskbar-cat: Overlay ohne Szene", file=sys.stderr)
+            win.deleteLater()
+            return
+        for name, value in (("atlas", self._atlas), ("ufoSource", self._ufo[0]),
+                            ("beamSource", self._ufo[1]),
+                            ("furnitureAtlas", self._furniture_atlas)):
+            scene.setProperty(name, value)
         win.setScreen(screen)
         win.setGeometry(screen.geometry())
-        ov = _Overlay(win, screen)
-        win.setMask(NO_INPUT)
-        win.catPressed.connect(guarded(lambda x, y, b, ov=ov: self._pressed(ov, x, y, b)))
-        win.catMoved.connect(guarded(lambda x, y, b, ov=ov: self._moved(ov, x, y, b)))
-        win.catReleased.connect(guarded(lambda x, y, b, ov=ov: self._released(ov, x, y, b)))
-        win.catCanceled.connect(guarded(self._cancel_drag))
-        win.bigtreeWheel.connect(guarded(lambda k, dx, dy: self.furnitureWheel.emit(k, dx, dy)))
+        ov = _Overlay(win, scene, screen)
+        self._backend.set_input_region(win, ())
+        scene.catPressed.connect(guarded(lambda x, y, b, ov=ov: self._pressed(ov, x, y, b)))
+        scene.catMoved.connect(guarded(lambda x, y, b, ov=ov: self._moved(ov, x, y, b)))
+        scene.catReleased.connect(guarded(lambda x, y, b, ov=ov: self._released(ov, x, y, b)))
+        scene.catCanceled.connect(guarded(self._cancel_drag))
+        scene.bigtreeWheel.connect(guarded(lambda k, dx, dy: self.furnitureWheel.emit(k, dx, dy)))
         win.show()
         self._overlays[screen] = ov
 
@@ -172,7 +194,7 @@ class OverlayManager(QObject):
     def _furniture_frames(self, cat: Cat, world: World,
                           furniture: Furniture | None) -> list[tuple[str, float, float, str, str | None]]:
         """(Art, x, y, Frame hinter der Katze, Frame vor der Katze) je sichtbarem Möbel;
-        merkt sich nebenbei die Mausflächen."""
+        merkt sich nebenbei die Mausflächen (Silhouette aller gezeichneten Frames)."""
         self._furn_rects = {}
         self._furn_pos = {}
         self._furn_parts = {}
@@ -191,48 +213,52 @@ class OverlayManager(QObject):
                 continue
             x, y = self._furn_pos[kind] = pos
             if kind in furniture.trees:
-                tree = furniture.trees[kind]
-                left, top, s, lay = bigtree.geometry(tree, pos, size)
-                self._furn_parts[kind] = [QRect(round(r.x), round(r.y), round(r.w), round(r.h))
-                                          for r in bigtree.parts(tree, pos, size)]
-                load = self._sink[1:] if self._sink is not None and self._sink[0] == kind else None
-                src = bigtree_source(tree, load)
-                self._bigtrees.append({"kind": kind, "src": src,
-                                       "x": left, "y": top, "w": lay.w * s, "h": lay.h * s})
-                for i, (tx, ty, n, col) in enumerate(lay.toys):   # pendeln, also nicht im Bild
-                    self._toys.append({"x": left + (tx + 0.5) * s, "y": top + ty * s, "len": n * s, "s": s,
-                                       "color": sprites.TOY_COLORS[col % len(sprites.TOY_COLORS)].name(),
-                                       "string": sprites.SISAL_DARK.name(),
-                                       "outline": sprites.FURNITURE_OUTLINE.name()})
-                    self._toy_angles.append(furniture.toy_angle(kind, i))
-                behind = cat.behind()
-                for part in (load, (behind[1], 1) if behind is not None and behind[0] == kind else None):
-                    front = bigtree.front_part(lay, *part) if part is not None else None
-                    if front is not None:
-                        fx, fy, fw, fh = front
-                        self._fronts.append({"src": bigtree_source(tree, part, front=True),
-                                             "x": left + fx * s, "y": top + fy * s, "w": fw * s, "h": fh * s})
+                self._bigtree_frames(furniture, kind, pos, size, cat)
                 continue
-            s = size / sprites.FRAME
-            bx, by, bw, bh = (v * s for v in BOX[kind])
-            top = y - sprites.furniture_height(kind) * s
-            self._furn_rects[kind] = QRect(round(x - size / 2 + bx), round(top + by),
-                                           round(bw), round(bh))
             if kind == "bed":
-                out.append((kind, x, y, "bed_back", "bed_front" if cat.in_bed else None))
+                frames = (kind, x, y, "bed_back", "bed_front" if cat.in_bed else None)
             elif kind == "tree":
-                out.append((kind, x, y, "tree", None))
+                frames = (kind, x, y, "tree", None)
             elif kind == "yarn":   # Fadenlinien wechseln alle Achtel-Sprite beim Rollen
-                out.append((kind, x, y, ("yarn", "yarn_roll")[int(x / (size / 8)) % 2], None))
+                frames = (kind, x, y, ("yarn", "yarn_roll")[int(x / (size / 8)) % 2], None)
             elif furniture.bowl_upside_down:
-                out.append((kind, x, y, "bowl_tipped", None))
-                if furniture.spill and furniture.tipped:
-                    self._pile = furniture.pile(size)
-                    out.append((kind, *self._pile, f"spill_{min(furniture.spill, sprites.BOWL_LEVELS)}", None))
+                frames = (kind, x, y, "bowl_tipped", None)
             else:
                 level = min(furniture.food, sprites.BOWL_LEVELS)
-                out.append((kind, x, y, f"bowl_{level}", None))
+                frames = (kind, x, y, f"bowl_{level}", None)
+            self._furn_rects[kind] = self._furniture_rects(frames, size)
+            out.append(frames)
+            if frames[3] == "bowl_tipped" and furniture.spill and furniture.tipped:
+                # Das Futter daneben liegt nur da: kein Mauskasten, keine Input-Region.
+                self._pile = furniture.pile(size)
+                level = min(furniture.spill, sprites.BOWL_LEVELS)
+                out.append((kind, *self._pile, f"spill_{level}", None))
         return out
+
+    def _bigtree_frames(self, furniture: Furniture, kind: str, pos: tuple[float, float],
+                        size: int, cat: Cat) -> None:
+        """Einen großen Kratzbaum fürs QML einpacken: Bild, Bällchen und die Vorderlage.
+        Die Bäume kommen nicht aus dem Atlas, ihre Mausflächen sind die Teile des Aufbaus."""
+        tree = furniture.trees[kind]
+        left, top, s, lay = bigtree.geometry(tree, pos, size)
+        self._furn_parts[kind] = [QRect(round(r.x), round(r.y), round(r.w), round(r.h))
+                                  for r in bigtree.parts(tree, pos, size)]
+        load = self._sink[1:] if self._sink is not None and self._sink[0] == kind else None
+        self._bigtrees.append({"kind": kind, "src": bigtree_source(tree, load),
+                               "x": left, "y": top, "w": lay.w * s, "h": lay.h * s})
+        for i, (tx, ty, n, col) in enumerate(lay.toys):   # pendeln, also nicht im Bild
+            self._toys.append({"x": left + (tx + 0.5) * s, "y": top + ty * s, "len": n * s, "s": s,
+                               "color": sprites.TOY_COLORS[col % len(sprites.TOY_COLORS)].name(),
+                               "string": sprites.SISAL_DARK.name(),
+                               "outline": sprites.FURNITURE_OUTLINE.name()})
+            self._toy_angles.append(furniture.toy_angle(kind, i))
+        behind = cat.behind()
+        for part in (load, (behind[1], 1) if behind is not None and behind[0] == kind else None):
+            front = bigtree.front_part(lay, *part) if part is not None else None
+            if front is not None:
+                fx, fy, fw, fh = front
+                self._fronts.append({"src": bigtree_source(tree, part, front=True),
+                                     "x": left + fx * s, "y": top + fy * s, "w": fw * s, "h": fh * s})
 
     def _flies(self, furniture: Furniture | None, size: int) -> list[float]:
         """Fliegen über dem verschütteten Futter, flach je Fliege: x, y (global), Flügel oben.
@@ -258,14 +284,30 @@ class OverlayManager(QObject):
         self._sink = (*bigtree.hammock_of(owner), px)
         return px * bigtree.CAT_SINK / bigtree.LOAD_SAG * cat.sprite / sprites.FRAME
 
+    def _furniture_rects(self, frames, size: int) -> tuple[QRect, ...]:
+        """Mausflächen eines Möbels: alle gezeichneten Frames zusammen."""
+        _, x, y, back, front = frames
+        scale = size / sprites.FRAME
+        left = round(x - size / 2)
+        rects: tuple[QRect, ...] = ()
+        for name in (back, front):
+            if name is None:
+                continue
+            fx, fy = sprites.furniture_origin(name)
+            h = sprites.furniture_height(name)
+            rects += self._furn_shapes.rects(fx, fy, sprites.FRAME, h,
+                                             left, round(y - h * scale), scale)
+        return rects
+
     def render(self, cat: Cat, world: World, t: float, furniture: Furniture | None = None) -> None:
         anim, mood, frame, flip = cat.frame_key(t)
         sx, sy = sprites.frame_origin(anim, mood, frame)
         size = cat.sprite
         sink = self._hammock_sink(cat, t)
-        self._cat_rect = (QRect(round(cat.x - size / 2), round(cat.y - size), size, size)
-                          .adjusted(-MASK_MARGIN, -MASK_MARGIN, MASK_MARGIN, MASK_MARGIN)
-                          if cat.visible else QRect())
+        self._cat_rects = (self._shapes.rects(sx, sy, sprites.FRAME, sprites.FRAME,
+                                              round(cat.x - size / 2), round(cat.y - size + sink),
+                                              size / sprites.FRAME, flip)
+                           if cat.visible else ())
         furn = self._furniture_frames(cat, world, furniture)
         flies = self._flies(furniture, size)
         for ov in self._overlays.values():
@@ -274,7 +316,7 @@ class OverlayManager(QObject):
             sprite = QRect(round(lx - size / 2), round(ly - size), size, size)
             screen = QRect(QPoint(0, 0), ov.screen.geometry().size())
             here = cat.visible and sprite.intersects(screen)
-            w = ov.window
+            w = ov.scene
             w.setProperty("catVisible", here)
             w.setProperty("spriteSize", size)
             if here:
@@ -296,11 +338,11 @@ class OverlayManager(QObject):
                 ov.furniture = (back, front)
                 w.setProperty("furnitureBack", back)
                 w.setProperty("furnitureFront", front)
-            trees = [{**t, "x": t["x"] - o.x(), "y": t["y"] - o.y()} for t in self._bigtrees]
+            trees = [{**tr, "x": tr["x"] - o.x(), "y": tr["y"] - o.y()} for tr in self._bigtrees]
             if trees != ov.bigtrees:
                 ov.bigtrees = trees
                 w.setProperty("bigtrees", trees)
-            toys = [{**t, "x": t["x"] - o.x(), "y": t["y"] - o.y()} for t in self._toys]
+            toys = [{**tr, "x": tr["x"] - o.x(), "y": tr["y"] - o.y()} for tr in self._toys]
             if toys != ov.toys:
                 ov.toys = toys
                 w.setProperty("bigtreeToys", toys)
@@ -311,21 +353,19 @@ class OverlayManager(QObject):
             w.setProperty("flySize", size / sprites.FRAME)
             w.setProperty("flyPos", local_flies)
             w.setProperty("flyCount", len(flies) // 3)
-            fronts = [{**t, "x": t["x"] - o.x(), "y": t["y"] - o.y()} for t in self._fronts]
+            fronts = [{**tr, "x": tr["x"] - o.x(), "y": tr["y"] - o.y()} for tr in self._fronts]
             if fronts != ov.fronts:
                 ov.fronts = fronts
                 w.setProperty("bigtreeFronts", fronts)
-            local = [r.translated(-o.x(), -o.y()) for r in self._furn_rects.values()]
+            local = [r.translated(-o.x(), -o.y())
+                     for rects in self._furn_rects.values() for r in rects]
             local += [r.translated(-o.x(), -o.y()) for rs in self._furn_parts.values() for r in rs]
             if here:
-                local.append(sprite.adjusted(-MASK_MARGIN, -MASK_MARGIN, MASK_MARGIN, MASK_MARGIN))
+                local += [r.translated(-o.x(), -o.y()) for r in self._cat_rects]
             mask = tuple(r for r in local if r.intersects(screen))
             # Während eines Drags behält das greifende Overlay seine Region (Implicit Grab).
             if mask != ov.mask and not self._drag.is_dragging:
-                region = QRegion()
-                for r in mask:
-                    region = region.united(r)
-                w.setMask(region if mask else NO_INPUT)
+                self._backend.set_input_region(ov.window, mask)
                 ov.mask = mask
             if self._debug and world is not ov.world:
                 ov.world = world
@@ -358,10 +398,12 @@ class OverlayManager(QObject):
     def _hit(self, gx: float, gy: float) -> str | None:
         """Was liegt unter dem Zeiger? Die Katze geht vor."""
         p = QPoint(round(gx), round(gy))
-        if self._cat_rect.contains(p):
+        if any(r.contains(p) for r in self._cat_rects):
             return "cat"
-        return next((k for k, r in self._furn_rects.items() if r.contains(p)),
-                    next((k for k, rs in self._furn_parts.items() if any(r.contains(p) for r in rs)), None))
+        return next((k for k, rects in self._furn_rects.items()
+                     if any(r.contains(p) for r in rects)),
+                    next((k for k, rs in self._furn_parts.items()
+                          if any(r.contains(p) for r in rs)), None))
 
     def _pressed(self, ov: _Overlay, x: float, y: float, button: int) -> None:
         gx, gy = x + ov.origin.x(), y + ov.origin.y()

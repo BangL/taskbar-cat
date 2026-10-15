@@ -9,7 +9,7 @@ from PyQt6.QtCore import QTimer
 from PyQt6.QtQml import QQmlEngine
 from PyQt6.QtWidgets import QApplication, QInputDialog, QMenu
 
-from . import __version__, paths, sprites, status, storage
+from . import __version__, backend as backends, paths, sprites, status, storage
 from .guard import guarded
 from .bus import CatBus, query_status as bus_query
 from .cat import Cat
@@ -42,7 +42,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     p = argparse.ArgumentParser(
         prog="taskbar-cat",
         description="Pixel-Art-Tamagotchi-Katze, die auf dem Boden der Arbeitsfläche "
-                    "und auf Fensteroberkanten lebt (KDE Plasma 6 / Wayland).",
+                    "und auf Fensteroberkanten lebt (KDE Plasma 6 / Wayland, GNOME).",
         epilog="Zustand: $XDG_DATA_HOME/taskbar-cat/state.json. "
                "Fenster-Sensor einzeln testen: python3 -m taskbar_cat.bus --dump")
     p.add_argument("--debug", action="store_true",
@@ -69,6 +69,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.status:
         return print_status(args.json)
     debug = args.debug
+    backends.prepare_qt()   # Backend wählen und QT_QPA_PLATFORM setzen, vor der QApplication
     app = QApplication(argv[:1])
     app.setApplicationName("taskbar-cat")
     app.setQuitOnLastWindowClosed(False)
@@ -95,7 +96,8 @@ def main(argv: list[str] | None = None) -> int:
     engine = QQmlEngine()
     overlays = OverlayManager(engine, sprites.ensure_atlas(paths.cache_dir(), cfg.fur_color, cfg.tabby),
                               debug or cfg.debug_lines, sprites.ensure_ufo(paths.cache_dir()),
-                              sprites.ensure_furniture(paths.cache_dir()))
+                              sprites.ensure_furniture(paths.cache_dir()),
+                              backend=bus.backend)
     tray = CatTray(cat, cfg.fur_color)
 
     overlays.petted.connect(guarded(cat.pet))

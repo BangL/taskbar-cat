@@ -1,6 +1,6 @@
 # Taskbar-Cat - Design-Spec
 
-Stand: 2026-10-14
+Stand: 2026-10-15
 
 ## Ziel
 
@@ -9,9 +9,39 @@ Pixel-Art-Katze als Tamagotchi, die auf dem "Boden" (Unterkante der Arbeitsfläc
 ## Umgebung
 
 - KDE Plasma 6.6, KWin Wayland, 3 Monitore nebeneinander (je 1920x1080, gleiche Höhe).
+- GNOME Shell 45+ (getestet 51, Wayland), ebenfalls mehrere Monitore.
 - Panel des Users liegt oben; muss aber für jede Panel-Position funktionieren.
-- System-Qt 6.10, `python3-pyqt6` (+ qtqml, qtquick), `qml6-module-org-kde-layershell`, `python3-dbus`.
+- System-Qt 6.10, `python3-pyqt6` (+ qtqml, qtquick), `python3-dbus`; unter KDE zusätzlich
+  `qml6-module-org-kde-layershell`, unter GNOME XWayland.
 - Tests: `pytest` (muss installiert werden: `python3-pytest`).
+
+### Backends
+
+Alles Umgebungsabhängige steckt in `taskbar_cat/backend/`; gewählt wird einmal beim
+Start (aus `XDG_CURRENT_DESKTOP`, erzwingbar über `TASKBAR_CAT_BACKEND`), danach ist
+der Rest des Programms plattformunabhängig. Neue Funktionen brauchen deshalb keinen
+Code pro Arbeitsumgebung.
+
+Ein Backend legt drei Dinge fest: das Qt-Plattform-Plugin (`QT_QPA_PLATFORM`), die
+Fensterhülle des Overlays (QML-Datei) samt Input-Region, und den Sensor.
+
+| | `kde` (auch sway, Hyprland) | `gnome` |
+|---|---|---|
+| Qt-Plugin | Wayland (Qt entscheidet) | `xcb` (XWayland) |
+| Fenster | `ui/overlay.qml`, Layer-Shell | `ui/overlay_x11.qml`, override-redirect |
+| Input-Region | `QWindow.setMask` | XShape `ShapeInput` (`backend/_x11.py`) |
+
+Die Flächen selbst sind backend-neutral: `ui/silhouette.py` liest den Alpha-Kanal des
+Atlas-Frames und liefert die deckenden Flächen als Rechtecke (zeilenweise Läufe,
+gleiche Zeilen zusammengefasst; eine sitzende Katze ergibt rund 30). Daraus entstehen
+sowohl die Input-Region als auch die Treffererkennung der Maus - auf durchsichtige
+Stellen geklickt, landet der Klick im Fenster darunter.
+| Sensor | KWin-Script über `org.kde.KWin` | Shell-Extension über `org.gnome.Shell.Extensions` |
+
+Grund für XWayland unter GNOME: Mutter kennt kein `wlr-layer-shell`, und native
+Wayland-Clients dürfen sich nicht selbst positionieren. `QWindow.setMask` scheidet
+dort aus, weil Qt auf X11 damit auch das Bild beschneidet - Möbel würden auf ihren
+Mauskasten gestutzt und beim Ziehen unsichtbar.
 
 ## Architektur
 
@@ -25,6 +55,13 @@ packaging/build-deb.sh       .deb aus dem Wheel (Architecture: all, dist-package
 data/taskbar-cat.desktop     Vorlage ohne festen Pfad (Exec=taskbar-cat)
 taskbar_cat/
   kwin/taskbar-cat-sensor.js KWin-Script, Fenster-Sensor (Paketdatei)
+  gnome/extension.js         GNOME-Shell-Extension, derselbe Sensor (Paketdatei)
+  gnome/metadata.json        Kennung der Extension (taskbar-cat@bangl.github.io)
+  backend/base.py            Schnittstelle: Qt-Plugin, Overlay-Hülle, Input-Region, Sensor
+  backend/kde.py             KWin-Script laden/entladen
+  backend/gnome.py           Extension einrichten/einschalten, XShape-Input-Region
+  backend/_x11.py            XShape über ctypes (nur Input, nicht das Bild)
+  ui/silhouette.py           Mausflächen aus dem Alpha-Kanal der Sprites
   paths.py                   XDG-Verzeichnisse, mitgelieferte Dateien auflösen
   config.py                  einstellbare Werte + SPECS (Grenzen, Beschriftung)
   status.py                  Statustexte für Tray-Tooltip, Dialog und Konsole
@@ -32,13 +69,15 @@ taskbar_cat/
   data/taskbar-cat.desktop   Desktop-Vorlage (Paketdatei, kein fester Pfad)
   ui/settings.py             Einstellungsdialog, aus config.SPECS aufgebaut
   __main__.py                Start, Single-Instance, Verdrahtung
-  bus.py                     D-Bus-Service, KWin-Script laden/entladen, ScreenSaver-Signal
+  bus.py                     D-Bus-Service, Sensor-Watchdog, ScreenSaver-Signal
   world.py                   Weltmodell: Plattformen aus Fenstern + Arbeitsflächen (rein, kein Qt)
   bigtree.py                 Großer Kratzbaum: zufälliger Aufbau je Größe, Kanten und Kletterwände (rein, kein Qt)
   cat.py                     Bedürfnisse, Zustandsautomat, Physik (rein, kein Qt)
   storage.py                 state.json laden/speichern
   sprites.py                 Pixel-Art prozedural erzeugen -> Spritesheet-PNG
-  ui/overlay.qml             Layer-Shell-Overlay je Monitor
+  ui/CatScene.qml            Inhalt des Overlays (Katze, Möbel, UFO, Maus), backend-neutral
+  ui/overlay.qml             Fensterhülle Layer-Shell
+  ui/overlay_x11.qml         Fensterhülle X11
   ui/overlay.py              Overlay-Verwaltung, Input-Region, Maus-Events
   ui/tray.py                 Tray-Icon + Menü
   ui/collection.py           Sammlung gespeicherter Kratzbaum-Varianten mit Vorschau
@@ -46,9 +85,14 @@ tests/                       pytest für world, cat, storage
 autostart/taskbar-cat.desktop
 ```
 
-Datenfluss: KWin-Script -> D-Bus -> `world` -> `cat.tick(dt)` mit 30 FPS -> Overlay zeichnet Sprite an Position.
+Datenfluss: Sensor -> D-Bus -> `world` -> `cat.tick(dt)` mit 30 FPS -> Overlay zeichnet Sprite an Position.
 
-### 1. KWin-Fenster-Sensor (`taskbar_cat/kwin/taskbar-cat-sensor.js`)
+### 1. Fenster-Sensor
+
+Beide Sensoren sprechen dasselbe Protokoll und dieselben D-Bus-Methoden; `world.py`
+sieht keinen Unterschied.
+
+#### 1a. KWin (`taskbar_cat/kwin/taskbar-cat-sensor.js`)
 
 - Hört auf: `workspace.windowAdded`, `windowRemoved`, `windowActivated`, `currentDesktopChanged`, `screensChanged`, je Fenster `frameGeometryChanged`, `minimizedChanged`, `fullScreenChanged`, Stapeländerung (`workspace.stackingOrderChanged`).
 - Sendet bei jeder Änderung (KWin-JS hat keine Timer; Drosselung/Zusammenfassen passiert in der App, die nur das neueste Update pro Tick verarbeitet) per `callDBus("de.bangl.TaskbarCat", "/", "de.bangl.TaskbarCat", "update", json)`.
@@ -56,6 +100,30 @@ Datenfluss: KWin-Script -> D-Bus -> `world` -> `cat.tick(dt)` mit 30 FPS -> Over
   - `outputs`: je Monitor `name`, `geometry` (x,y,w,h), `workArea` = `workspace.clientArea(KWin.MaximizeArea, output, currentDesktop)`.
   - `windows`: sichtbare Fenster auf aktuellem Desktop (keine Dialoge vom Typ Popup/Tooltip/Notification, keine minimierten): `id`, `x`, `y`, `w`, `h`, `stack` (Index in `stackingOrder`), `fullScreen`, `maximized`, `panel`. Enthalten sind normale Fenster (`normalWindow`) und Leisten (`dock`, nicht `hidden`, also kein eingeklapptes Auto-Hide-Panel); `panel: true` markiert letztere.
 - Beim Laden sendet das Script sofort ein vollständiges Update.
+
+#### 1b. GNOME (`taskbar_cat/gnome/extension.js`)
+
+- Dieselben Felder, dieselben Methoden (`update`, `cursor`). Quellen: Monitore über
+  `global.backend.get_monitor_manager()` (Name = Anschluss wie `DP-1`, passt damit zu
+  den Qt-Namen und zu `blocked_outputs`), `workArea` =
+  `workspace.get_work_area_for_monitor(i)`, Fenster aus
+  `display.sort_windows_by_stacking(...)` (Index = `stack`), `panel` = Fenstertyp `DOCK`.
+- Hört auf `window-created`, `restacked`, `grab-op-end`, `in-fullscreen-changed`,
+  `workareas-changed`, `monitors-changed`, `active-workspace-changed`, die Shell-WM-Signale
+  (`minimize`, `unminimize`, `size-change`, `map`, `destroy`) und je Fenster
+  `position-changed`, `size-changed`, `workspace-changed` sowie die Eigenschaften
+  `minimized`, `fullscreen`, `maximized-*`, `window-type`, `on-all-workspaces`.
+- Anders als in KWin werden Änderungen auf 33 ms gebündelt, damit die Shell nicht ruckelt.
+  Der Mauszeiger wird mit 33 ms abgefragt (`global.get_pointer()`), gesendet nur bei Änderung.
+- Die Extension beobachtet den Namen `de.bangl.TaskbarCat` und arbeitet nur, solange die
+  Katze läuft; ohne sie verbraucht sie nichts.
+- Einrichtung übernimmt `backend/gnome.py`: Dateien nach
+  `~/.local/share/gnome-shell/extensions/taskbar-cat@bangl.github.io/` kopieren (nur bei
+  Änderung), dann `EnableExtension`, bei geändertem Code zusätzlich `ReloadExtension`.
+  Neu installierte Erweiterungen liest GNOME erst beim Start der Shell ein - vorher meldet
+  der Zustand `0` und die App weist auf eine Neuanmeldung hin.
+- Die GNOME-Topbar ist kein Fenster, sondern Shell-Chrome; sie steckt in der `workArea`
+  und ist damit - wie ein Plasma-Panel, das Platz reserviert - nicht begehbar.
 
 ### 2. Weltmodell (`world.py`)
 
@@ -97,14 +165,14 @@ Verhaltenszustände: `idle_sit`, `groom`, `vomit`, `walk`, `approach`, `jump`, `
 - **Riesensprung:** jede sichtbare Oberkante ist erreichbar, Höhe unbegrenzt, seitlich max. 320 px - und zwar auch der Landepunkt, nicht nur der Abstand zur Kante der Zielplattform (sonst schießt sie quer über den Nachbarmonitor, dessen Boden 1920 px breit ist). Ziele, deren Scheitel das Sprite über den Bildschirm schieben würde, sind ausgeschlossen.
 - **Klettern:** zur Wand laufen (max. 400 px), Fuß der Wand max. 300 px über der Katze (sonst Sprung an die Wand), mit 80 px/s (traurig 40) hochklettern, oben auf die Oberkante desselben Fensters steigen. Ist die Oberkante verdeckt oder nicht begehbar -> abspringen. Fährt mit dem Fenster mit; Fenster weg -> fallen.
 - **Unterkante:** Unterkante 113-300 px über der Katze -> hochspringen, 1,5-3 s zappelnd hängen, dann fallen.
-- **Spielen (Mauszeiger fangen):** KWin-Sensor meldet `workspace.cursorPos` (max. ~30/s, D-Bus-Methode `cursor(s "x y")`). Fuchteln = Cursor <= 300 px um die Katzenmitte, >= 500 px Weg und >= 2 Richtungswechsel in 1 s, nicht direkt über dem Sprite (das ist Streicheln). Spielmodus hält 2 s nach dem letzten Fuchteln. Cursor über ihr (|dx| < 120, 120-350 px höher) -> Sprung mit Pfotenhieb; Cursor < 200 px -> 0,5-1 s lauern, dann Sprung mit Scheitel am Cursor; sitzt sie auf einer Kante und der Cursor ist mehr als 40 px unter ihren Pfoten, zählt nur der seitliche Abstand (< 200 px) und sie springt hinunter (die eigene Kante wird beim Landen übersprungen, vom Boden aus gibt es keinen Sprung nach unten); sonst hinrennen (150 px/s). Cursor im Sprite während des Sprungs = gefangen: Zuneigung +3, nach Landung 1,2 s Jubel. Kein Spiel bei krank, Energie < 20, schlafen, fressen, gezogen, klettern, hängen.
+- **Spielen (Mauszeiger fangen):** Der Sensor meldet die Zeigerposition (max. ~30/s, D-Bus-Methode `cursor(s "x y")`). Fuchteln = Cursor <= 300 px um die Katzenmitte, >= 500 px Weg und >= 2 Richtungswechsel in 1 s, nicht direkt über dem Sprite (das ist Streicheln). Spielmodus hält 2 s nach dem letzten Fuchteln. Cursor über ihr (|dx| < 120, 120-350 px höher) -> Sprung mit Pfotenhieb; Cursor < 200 px -> 0,5-1 s lauern, dann Sprung mit Scheitel am Cursor; sitzt sie auf einer Kante und der Cursor ist mehr als 40 px unter ihren Pfoten, zählt nur der seitliche Abstand (< 200 px) und sie springt hinunter (die eigene Kante wird beim Landen übersprungen, vom Boden aus gibt es keinen Sprung nach unten); sonst hinrennen (150 px/s). Cursor im Sprite während des Sprungs = gefangen: Zuneigung +3, nach Landung 1,2 s Jubel. Kein Spiel bei krank, Energie < 20, schlafen, fressen, gezogen, klettern, hängen.
 - Krank: kein Springen, Klettern, Hängen; beim Erkranken während Klettern/Hängen -> fallen.
 - **UFO (Easter Egg, `ufo.py`):** ohne Menüpunkt oder Einstellung. Pro Tick mit Wahrscheinlichkeit 0,25/h (eigener Zufallsgenerator, damit das übrige Verhalten unverändert bleibt), nur wenn die Katze ruhig auf einer Kante ist (sitzen, putzen, laufen, schlafen, schnurren, jubeln), der Bildschirm nicht gesperrt ist und der letzte Besuch mindestens 1 h her ist. Ablauf: UFO fliegt von einer Seite über die Katze (260 px über den Pfoten), Traktorstrahl zieht sie zappelnd hoch (`beamed`), UFO fliegt mit ihr davon (`abducted`, unsichtbar), kommt nach 4-7 s von der anderen Seite zurück und setzt sie auf dem Boden ab, dann fliegt es weg. Dabei wird die Fellfarbe gewechselt: Farbton um 60-300 Grad gedreht, Sättigung und Helligkeit bleiben; graues Fell (Sättigung < 0,15) bekommt eine andere Vorgabe-Farbe. Die App übernimmt die Farbe wie eine Änderung im Einstellungsdialog (speichern, Atlas, Tray, offener Dialog). Solange das UFO sie hat, wirken Ziehen, Füttern, Streicheln, Schlafen und Zum-Boden-Rufen nicht.
 - Monitorwechsel: über benachbarte Plattformen (Boden ist über Monitorgrenzen zusammenhängend, da gleiche Höhe; falls nicht, Sprung).
 
 ### 4. UI
 
-- **Overlay** (`ui/overlay.qml` + `overlay.py`): je Monitor ein `LayerShell.Window`, Layer `overlay`, Anker alle Seiten, `exclusionZone: -1` (ignoriert Panels, Overlay deckt ganzen Monitor), keine Tastatur-Interaktivität, transparent. Input-Region (`QWindow.setMask`) nur das Katzen-Rechteck (+8 px), sonst gehen Klicks durch. Nur das Overlay des Monitors, auf dem die Katze ist, zeigt sie (beim Übergang beide).
+- **Overlay** (`ui/CatScene.qml` + Hülle vom Backend + `overlay.py`): je Monitor ein transparentes Vollbildfenster. Unter KDE ein `LayerShell.Window`, Layer `overlay`, Anker alle Seiten, `exclusionZone: -1` (ignoriert Panels, Overlay deckt ganzen Monitor), keine Tastatur-Interaktivität; unter GNOME ein X11-Fenster mit `X11BypassWindowManagerHint`, Geometrie je Monitor von Hand gesetzt. Der gesamte Inhalt steckt in `CatScene.qml` und ist für beide gleich. Input-Region (`backend.set_input_region`) nur die Silhouette von Katze und Möbeln (`ui/silhouette.py`), sonst gehen Klicks durch - auch an durchsichtigen Stellen innerhalb des Sprite-Rechtecks. Dieselben Flächen entscheiden, was die Maus trifft. Große Kratzbäume stehen nicht im Atlas (sie werden gerechnet), für sie sind es die Teile des Aufbaus (`bigtree.parts`). Nur das Overlay des Monitors, auf dem die Katze ist, zeigt sie (beim Übergang beide).
 - **Sprites** (`sprites.py`): 32x32-Pixel-Art, Darstellung 3x skaliert (Nearest Neighbour). Animationen: sitzen, putzen, kotzen, laufen und kriechen (je 4 Frames), springen, fallen, schlafen (Zzz), fressen (Napf), schnurren (Herz), zappeln, liegen (krank), klettern (4 Frames), hängen (2 Frames), lauern, Pfotenhieb, Jubel (je 2 Frames), Varianten für traurig (Ohren) und krank (Tönung). Blickrichtung durch Spiegeln. PNG wird beim ersten Start erzeugt und gecacht (Dateiname enthält Version, Fellfarbe und Tigerung). UFO (32x16) und Traktorstrahl (Trapez mit Verlauf, gestreckt) liegen als eigene PNGs daneben.
 - Ruheposen (sitzen, liegen, schlafen, schnurren, jubeln, lauern) liegen mit Zeile 30 auf; die Kontur darunter (Zeile 31) ist die Standlinie. Lag der Körper eine Zeile höher, klaffte zwischen Katze und Fensterkante eine Lücke.
 - Jeder Frame wird nach dem Zeichnen und noch einmal nach dem Setzen der Kontur von eingeschlossenen Lücken befreit (`_fill_holes`, Füllfarbe = häufigste Nachbarfarbe): einzelne durchsichtige Pixel mitten im Sprite lassen sonst den Desktop durchblitzen, und die Kontur selbst schließt solche Lücken erst ein.
@@ -125,7 +193,7 @@ Verhaltenszustände: `idle_sit`, `groom`, `vomit`, `walk`, `approach`, `jump`, `
 
 - Start über `~/.config/autostart/taskbar-cat.desktop`; `install.sh` setzt dort `taskbar-cat` (installiert) oder `python3 -m taskbar_cat` + `Path=<Clone>` ein. Kein Pfad ist eingecheckt.
 - Single-Instance: D-Bus-Name `de.bangl.TaskbarCat` belegt -> zweite Instanz beendet sich.
-- Beim Start: KWin-Script `taskbar-cat-sensor` entladen falls geladen, dann `loadScript` + `start` über `org.kde.KWin /Scripting`.
+- Beim Start: Sensor des Backends starten - unter KDE das Script `taskbar-cat-sensor` entladen falls geladen, dann `loadScript` + `start` über `org.kde.KWin /Scripting`; unter GNOME die Extension einrichten und einschalten.
 - Beim Beenden: Zustand speichern, Script entladen.
 - Sperre: `org.freedesktop.ScreenSaver.ActiveChanged(true)` -> Zeit eingefroren, bis `false`.
 
@@ -147,7 +215,7 @@ Einstellungen: `$XDG_CONFIG_HOME/taskbar-cat/config.json`, geschrieben bei jeder
 - `cat.py`: Verfallsraten, Füttern/Streicheln, Stimmungswechsel inkl. 2-h-Regel und Erholung, Einfrieren bei Sperre, Mitfahren mit Fenster, Fallen bei Kantenverlust, Wurf landet auf Plattform.
 - `ufo.py`: neue Fellfarbe (Farbton gedreht, Grau -> Vorgabe), kompletter Ablauf, Farbe wird genau einmal abgeholt, keine Interaktion während der Entführung, kein UFO bei Sperre oder Beschäftigung, Ruhezeit nach einem Besuch, UFO-Zufall verschiebt das übrige Verhalten nicht.
 - `storage.py`: Roundtrip, kaputte Datei.
-- Manuell: Overlay, Input-Durchreichung, KWin-Script, Tray. Argumente über `argparse` (`--help`, `--version`, `--debug`; unbekannte Optionen -> Exit 2), ebenso `taskbar_cat.bus` und `taskbar_cat.sprites`. Debug-Flag `--debug` zeichnet Plattformen (gelb/magenta), Wände (cyan) und Decken (rot) als Linien ins Overlay.
+- Manuell: Overlay, Input-Durchreichung, Sensor (beide Backends), Tray. Argumente über `argparse` (`--help`, `--version`, `--debug`; unbekannte Optionen -> Exit 2), ebenso `taskbar_cat.bus` und `taskbar_cat.sprites`. Debug-Flag `--debug` zeichnet Plattformen (gelb/magenta), Wände (cyan) und Decken (rot) als Linien ins Overlay.
 
 ## Nicht im Umfang
 

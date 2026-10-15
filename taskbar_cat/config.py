@@ -86,7 +86,7 @@ class Config:
     p_cave: float = 0.3
     p_toy: float = 0.35
     sisal_scratches: int = 5
-    # Monitore, auf denen die Katze nicht laufen soll (KWin-Namen wie "DP-1").
+    # Monitore, auf denen die Katze nicht laufen soll (Anschlussnamen wie "DP-1").
     # Nicht in SPECS: die Auswahl entsteht erst zur Laufzeit aus den vorhandenen Monitoren.
     blocked_outputs: list[str] = field(default_factory=list)
 
