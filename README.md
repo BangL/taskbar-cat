@@ -71,6 +71,8 @@ Als Python-Paket (eigenes venv oder `--user`):
 - Linksklick aufs Tray-Icon: füttern; steht ein Napf, kommt das Futter dort hinein (bis zu 3 Portionen)
 - "Inventar ...": Katzenbett, Napf, Wollknäuel und Kratzbaum aufstellen oder einlagern; aufgestellte Möbel fallen auf den Boden oder eine Fensterkante, fahren mit dem Fenster mit und fallen herunter, wenn es verschwindet; mit der Maus lassen sie sich verschieben, Rechtsklick darauf lagert sie ein
 - Mit Napf geht die Katze selbst fressen, sobald eine Portion reinpasst; mit Bett schläft sie darin; ein Wollknäuel stupst sie ab und zu über den Boden und jagt hinterher ("Mit Wolle spielen" in den Einstellungen), das Knäuel lässt sich auch werfen und bleibt auf Fenstern liegen; am Kratzbaum kratzt sie oder springt auf die Liegefläche, die wie eine Fensterkante begehbar ist ("Kratzbaum" in den Einstellungen). Fehlt ein Möbel (eingelagert, leer, auf gesperrtem Monitor), macht sie es wie vorher
+- Großer Kratzbaum (im Inventar, weitere über "Große Kratzbäume" -> "Neuen aufstellen"): Aufbau aus Pfeilern, Liegebrettern mit Ästen, Hängematten, Höhle und Bällchen, der sich aus Breite und Höhe ergibt und bei jeder Größe neu gewürfelt wird. Mausrad über dem Baum ändert fließend die Höhe, seitliches Scrollen die Breite. An den oberen Bildschirmrand gezogen klebt er dort und hängt herab. Die Katze springt von Fläche zu Fläche, klettert an den Pfeilern hoch, kratzt daran und schläft schaukelnd in den Hängematten ("Großer Kratzbaum" in den Einstellungen)
+- Rechtsklick auf einen großen Kratzbaum: "Variante speichern ..." merkt sich einen gelungenen Aufbau unter einem Namen; "Sammlung ..." zeigt alle gespeicherten mit Vorschaubild zum Aufstellen, Umbenennen und Löschen; "Gespeicherte Variante übernehmen" baut den angeklickten Baum um
 - "Einstellungen ..." -> "Fellfarbe": Farbwähler; Streifen, Kontur, Brust, Augen und die traurige/kranke Variante werden daraus berechnet
 - "Einstellungen ..." -> "Tigerung": 0 % einfarbig, 100 % wie gewohnt, bis 200 % mit zusätzlichen Streifen
 - "Einstellungen ...": Größe, Tempo, Sprungweite, Verfallszeiten, Futter-/Streichelmenge und Wahrscheinlichkeiten für Sprung, Klettern, Hängen und Putzen; Werte greifen sofort
@@ -103,7 +105,8 @@ Einbau in fastfetch (`~/.config/fastfetch/config.jsonc`):
 ## Dateien
 
 - Zustand: `$XDG_DATA_HOME/taskbar-cat/state.json` (Standard `~/.local/share/...`)
-- Möbel (Standort, Futter im Napf): `$XDG_DATA_HOME/taskbar-cat/furniture.json`
+- Möbel (Standort, Futter im Napf, Größe der großen Kratzbäume): `$XDG_DATA_HOME/taskbar-cat/furniture.json`
+- Gespeicherte Kratzbaum-Varianten: `$XDG_DATA_HOME/taskbar-cat/bigtree-favorites.json`
 - Einstellungen: `$XDG_CONFIG_HOME/taskbar-cat/config.json` (Standard `~/.config/...`)
 - Autostart: `$XDG_CONFIG_HOME/autostart/taskbar-cat.desktop`
 - Sprite-Cache: `$XDG_CACHE_HOME/taskbar-cat/` (Standard `~/.cache/...`), je Fellfarbe und Tigerung ein Spritesheet

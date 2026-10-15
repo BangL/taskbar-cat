@@ -30,6 +30,8 @@ Window {
     property url furnitureAtlas
     property var furnitureBack: []
     property var furnitureFront: []
+    // Große Kratzbäume: je {kind, src (image://bigtree/...), x, y, w, h} (lokal, links oben)
+    property var bigtrees: []
     // UFO-Easter-Egg (Mitte der Untertasse, Strahl von beamTop bis beamBottom)
     property url ufoSource
     property url beamSource
@@ -47,6 +49,7 @@ Window {
     signal catMoved(real x, real y, int buttons)
     signal catReleased(real x, real y, int button)
     signal catCanceled()
+    signal bigtreeWheel(string kind, real dx, real dy)
 
     Repeater {
         model: win.platforms
@@ -67,6 +70,28 @@ Window {
         y: Math.round(win.beamTop)
         width: win.beamWidth
         height: Math.max(0, win.beamBottom - win.beamTop)
+    }
+
+    Repeater {
+        model: win.bigtrees
+        Item {
+            x: Math.round(modelData.x)
+            y: Math.round(modelData.y)
+            width: Math.round(modelData.w)
+            height: Math.round(modelData.h)
+            Image {
+                anchors.fill: parent
+                source: modelData.src
+                smooth: false
+                cache: false
+            }
+            // Mausrad: hoch/runter = Höhe, seitlich = Breite (Tasten gehen an die Katze)
+            MouseArea {
+                anchors.fill: parent
+                acceptedButtons: Qt.NoButton
+                onWheel: (e) => win.bigtreeWheel(modelData.kind, e.angleDelta.x, e.angleDelta.y)
+            }
+        }
     }
 
     Repeater {

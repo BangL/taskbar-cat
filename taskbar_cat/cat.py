@@ -4,6 +4,7 @@ import math
 import random
 
 from . import ufo
+from .bigtree import BOARD_ID, in_hammock, is_tree
 from .config import Config
 from .furniture import TREE_ID, Furniture
 from .needs import Mood, Needs
@@ -43,6 +44,10 @@ BOWL_REACH = REACH["bowl"]
 YARN_KICK = (150, 350)   # px/s, so fest stupst sie das Knäuel an
 YARN_BATS = (3, 6)       # so oft hintereinander, dann reicht es
 YARN_REWARD = 1          # Zuneigung pro Stupser
+BIGTREE_NEAR = 400       # px neben dem großen Kratzbaum: in seiner Nähe
+BIGTREE_HOP = 0.6        # auf dem großen Kratzbaum: weiter zur nächsten Fläche
+HAMMOCK_REST = ("idle_sit", "sleep", "purr", "groom")
+HAMMOCK_SWAY_FPS = 3     # langsamer als die übrigen Animationen: schaukeln
 
 AIRBORNE = ("jump", "fall", "thrown")
 CLINGING = ("climb", "hang")
@@ -106,6 +111,7 @@ class Cat:
         self._in_bed = False
         self._bats_left = 0
         self._waiting = False   # "seek", aber das Knäuel fliegt gerade: sitzen und zuschauen
+        self._post_x = 0.0      # Pfeiler des großen Kratzbaums, an dem sie kratzen will
 
     # --- Zustand von außen ---
 
@@ -233,13 +239,20 @@ class Cat:
 
     def frame_key(self, t: float) -> tuple[str, str, int, bool]:
         anim = ANIM_FOR_STATE.get(self.state, self.state)
+        frame = int(t * ANIM_FPS)
         if self.state == "jump" and self._pounce == "swipe":
             anim = "swipe"
         elif self.state == "seek" and self._waiting:
             anim = "sit"
+        elif self.state == "climb" and self._wall is not None and self._wall.owner.startswith(BOARD_ID):
+            anim = "climb_post"   # umgreift den Pfeiler des großen Kratzbaums
+        elif (self.state in HAMMOCK_REST and self.platform is not None
+              and in_hammock(self.platform.owner)):
+            anim = "hammock_sleep" if self.state == "sleep" else "hammock"
+            frame = int(t * HAMMOCK_SWAY_FPS)
         if self._cramped:
             anim = CRAMPED_ANIM.get(anim, anim)
-        return anim, MOOD_NAME[self.needs.mood], int(t * ANIM_FPS), self.facing < 0
+        return anim, MOOD_NAME[self.needs.mood], frame, self.facing < 0
 
     # --- Simulation ---
 
@@ -669,6 +682,10 @@ class Cat:
         w = self._wall
         inside = w.x - w.side * 30
         p = world.platform_by_owner_at(w.owner, inside)
+        if p is None and w.owner.startswith(BOARD_ID):   # schmale Fläche am Pfeiler: so weit es geht
+            p = next((q for q in world.platforms if q.owner == w.owner and abs(q.y - w.y1) <= 2), None)
+            if p is not None:
+                inside = min(max(inside, p.x1), p.x2)
         if p is not None and abs(p.y - w.y1) <= 2 and self._allowed(world, p):
             self.x = inside
             self._land(world, p)
@@ -683,6 +700,13 @@ class Cat:
 
     def _choose(self, world: World) -> None:
         self._goal = None
+        if self.platform is not None and in_hammock(self.platform.owner) and self.needs.mood != Mood.SICK:
+            if self.needs.energy < 60:          # in der Hängematte erst mal ausruhen
+                self._set("sleep", math.inf)
+                return
+            if self.rng.random() < 0.6:
+                self._set("idle_sit", self.rng.uniform(8, 20))
+                return
         if self.needs.energy < 20:
             if not self._seek("bed", world):
                 self._set("sleep", math.inf)
@@ -701,6 +725,11 @@ class Cat:
         if (self.furniture.usable("tree", world) is not None and self.platform.is_floor
                 and self.rng.random() < self.cfg.p_tree and self._seek("tree", world)):
             return
+        near = self._bigtree_near(world)
+        if near is not None:
+            on = self.platform.owner.startswith(BOARD_ID)
+            if self.rng.random() < (BIGTREE_HOP if on else self.cfg.p_bigtree) and self._use_bigtree(world, near, on):
+                return
         p = self.platform
         r = self.rng.random()
         p_jump = self.cfg.p_jump
@@ -755,6 +784,34 @@ class Cat:
 
     # --- Möbel ---
 
+    def _bigtree_near(self, world: World) -> str | None:
+        """Nächster aufgestellter großer Kratzbaum, wenn sie auf oder neben ihm ist."""
+        on = self.platform.owner[len(BOARD_ID):].split(":")[0] if self.platform.owner.startswith(BOARD_ID) else None
+        best = None
+        for kind in self.furniture.trees:
+            pos = self.furniture.usable(kind, world)
+            if pos is None:
+                continue
+            d = abs(pos[0] - self.x) - self.furniture.half_width(kind, self.sprite)
+            if (kind == on or d < BIGTREE_NEAR) and (best is None or d < best[1]):
+                best = (kind, d)
+        return best[0] if best is not None else None
+
+    def _use_bigtree(self, world: World, kind: str, on: bool) -> bool:
+        """Auf eine andere Fläche springen, am Pfeiler hochklettern oder daran kratzen."""
+        ups = [q for q in self._jump_targets(world, self.platform)
+               if q.owner.startswith(BOARD_ID) and q != self.platform]
+        walls = [] if on else [w for w in world.walls_near(self.platform, self.x, CLIMB_OFFSET)
+                               if w.owner.startswith(f"{BOARD_ID}{kind}:")]
+        r = self.rng.random()
+        if walls and r < 0.4:
+            self.start_climb(world, self.rng.choice(walls))
+            return True
+        if ups and (on or r < 0.75):
+            self._jump_to(self.rng.choice(ups))
+            return True
+        return not on and self._seek(kind, world)
+
     def _hungry(self) -> bool:
         """Erst wenn eine ganze Portion reinpasst, sonst wäre sie danach träge."""
         return self.needs.satiety < max(20.0, 100 - self.cfg.feed_amount)
@@ -775,6 +832,8 @@ class Cat:
         pos = self.furniture.usable(kind, world)
         if pos is None:
             return None
+        if is_tree(kind):
+            return self._post_spot(kind, pos, world)
         if kind == "bed":
             spots = [pos[0]]
         else:
@@ -785,6 +844,24 @@ class Cat:
             q = self._route(world, self.furniture.platform(kind), pos[0], x)
             if q is not None:
                 return x, q
+        return None
+
+    def _post_spot(self, kind: str, pos, world: World) -> tuple[float, Platform] | None:
+        """Neben dem nächsten Pfeiler, der bis zum Boden reicht (hängend reicht keiner)."""
+        tree = self.furniture.trees[kind]
+        if tree.hanging:
+            return None
+        s = self.sprite / 32
+        lay = tree.layout()
+        left = pos[0] - lay.w / 2 * s
+        reach = REACH["tree"] * s
+        for gx in sorted((left + x * s for x, _, _ in lay.posts), key=lambda gx: abs(gx - self.x)):
+            side = -1 if self.x < gx else 1
+            for x in (gx + side * reach, gx - side * reach):
+                q = self._route(world, self.furniture.platform(kind), pos[0], x)
+                if q is not None:
+                    self._post_x = gx
+                    return x, q
         return None
 
     def _way(self, world: World, x: float, q: Platform) -> str | None:
@@ -864,8 +941,12 @@ class Cat:
             self._in_bed = True
             return
         bx = self.furniture.usable(kind, world)[0]
+        if is_tree(kind):
+            bx = self._post_x   # zum Pfeiler, nicht zur Mitte des Baums
         self.facing = 1 if bx >= self.x else -1
-        if kind == "tree":
+        if is_tree(kind):
+            self._set("scratch", self.rng.uniform(2.5, 5))
+        elif kind == "tree":
             deck = next((p for p in world.platforms if p.owner == TREE_ID), None)
             if deck is not None and self.rng.random() < 0.5:
                 self._jump_to(deck, bx)   # hinauf auf die Liegefläche

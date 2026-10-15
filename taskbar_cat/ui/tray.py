@@ -21,6 +21,8 @@ class CatTray(QObject):
     pauseToggled = pyqtSignal(bool)
     settingsRequested = pyqtSignal()
     inventoryRequested = pyqtSignal()
+    bigtreeRequested = pyqtSignal()     # neuen großen Kratzbaum aufstellen
+    collectionRequested = pyqtSignal()
     quitRequested = pyqtSignal()
 
     def __init__(self, cat: Cat, fur: str = sprites.FUR_DEFAULT):
@@ -36,6 +38,9 @@ class CatTray(QObject):
         self._menu.addAction("Zum Boden rufen", self.floorRequested.emit)
         self._menu.addAction("Status ...", guarded(self._show_status))
         self._menu.addAction("Inventar ...", self.inventoryRequested.emit)
+        trees = self._menu.addMenu("Große Kratzbäume")
+        trees.addAction("Neuen aufstellen", self.bigtreeRequested.emit)
+        trees.addAction("Sammlung ...", self.collectionRequested.emit)
         self._menu.addSeparator()
         self._pause = self._menu.addAction("Pausieren")
         self._pause.setCheckable(True)

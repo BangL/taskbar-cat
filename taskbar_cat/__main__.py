@@ -7,14 +7,15 @@ import time
 
 from PyQt6.QtCore import QTimer
 from PyQt6.QtQml import QQmlEngine
-from PyQt6.QtWidgets import QApplication, QMenu
+from PyQt6.QtWidgets import QApplication, QInputDialog, QMenu
 
 from . import __version__, paths, sprites, status, storage
 from .guard import guarded
 from .bus import CatBus, query_status as bus_query
 from .cat import Cat
-from .furniture import half_width as furniture_half
+from .bigtree import KIND as KIND_BIGTREE, is_tree
 from .play import WiggleDetector
+from .ui.collection import CollectionDialog
 from .ui.inventory import InventoryDialog
 from .ui.overlay import OverlayManager
 from .ui.settings import SettingsDialog
@@ -108,7 +109,7 @@ def main(argv: list[str] | None = None) -> int:
     overlays.released.connect(guarded(cat.release))
 
     def half_width(kind: str) -> float:
-        return furniture_half(kind, cat.sprite)
+        return furniture.half_width(kind, cat.sprite)
 
     def furniture_changed() -> None:
         storage.try_save(furniture_file, furniture)
@@ -147,9 +148,70 @@ def main(argv: list[str] | None = None) -> int:
         dlg.raise_()
         dlg.activateWindow()
 
+    variants_file = paths.bigtree_variants_file()
+
+    def add_bigtree(variant: dict | None = None, x: float | None = None, y: float | None = None) -> None:
+        """Neben die Katze (bzw. bei x, y) fallen lassen."""
+        if x is None:
+            x, y = cat.x + cat.facing * cat.sprite * 1.5, cat.y - cat.sprite * 2
+        furniture.add_tree(x, y, variant)
+        furniture_changed()
+
+    def show_collection() -> None:
+        dlg = state.get("collection")
+        if dlg is None:
+            dlg = state["collection"] = CollectionDialog(variants_file)
+            dlg.placeRequested.connect(guarded(add_bigtree))
+        dlg.refresh()
+        dlg.show()
+        dlg.raise_()
+        dlg.activateWindow()
+
+    def save_variant(kind: str) -> None:
+        variants = storage.load_variants(variants_file)
+        name, ok = QInputDialog.getText(None, "Kratzbaum-Variante speichern", "Name:",
+                                        text=f"Kratzbaum {len(variants) + 1}")
+        name = name.strip()
+        if not ok or not name or kind not in furniture.trees:
+            return
+        variants = [v for v in variants if v["name"] != name] + [furniture.trees[kind].variant(name)]
+        storage.save_variants(variants_file, variants)
+        if state.get("collection") is not None:
+            state["collection"].refresh()
+
+    def apply_variant(kind: str, variant: dict) -> None:
+        if kind in furniture.trees:
+            furniture.apply_variant(kind, variant)
+            furniture_changed()
+
+    def remove_bigtree(kind: str) -> None:
+        furniture.remove_tree(kind)
+        furniture_changed()
+
+    def bigtree_wheel(kind: str, dx: float, dy: float) -> None:
+        tree = furniture.trees.get(kind)
+        if tree is not None:
+            furniture.resize_tree(kind, *tree.wheeled(dx, dy))
+            furniture_changed()
+
     furniture_menu = QMenu()
     def show_furniture_menu(kind: str, pos) -> None:
         furniture_menu.clear()
+        if is_tree(kind):
+            furniture_menu.addAction("Variante speichern ...", guarded(lambda: save_variant(kind)))
+            furniture_menu.addAction("Sammlung ...", guarded(show_collection))
+            sub = furniture_menu.addMenu("Gespeicherte Variante übernehmen")
+            for v in storage.load_variants(variants_file):
+                sub.addAction(v["name"], guarded(lambda _c=False, v=v: apply_variant(kind, v)))
+            sub.setEnabled(bool(sub.actions()))
+            furniture_menu.addSeparator()
+            b = furniture.bodies[kind]
+            furniture_menu.addAction("Weiteren Kratzbaum aufstellen", guarded(
+                lambda: add_bigtree(None, b.x + 2 * half_width(kind) + 40, b.y - 400)))
+            if kind != KIND_BIGTREE:   # weitere Bäume stehen nicht im Inventar
+                furniture_menu.addAction("Entfernen", guarded(lambda: remove_bigtree(kind)))
+                furniture_menu.popup(pos)
+                return
         furniture_menu.addAction("Einlagern", guarded(lambda: store(kind)))
         furniture_menu.addAction("Inventar ...", guarded(show_inventory))
         furniture_menu.popup(pos)
@@ -157,6 +219,9 @@ def main(argv: list[str] | None = None) -> int:
     overlays.furnitureMoved.connect(guarded(move_furniture))
     overlays.furnitureReleased.connect(guarded(furniture.release))
     overlays.furnitureMenu.connect(guarded(show_furniture_menu))
+    overlays.furnitureWheel.connect(guarded(bigtree_wheel))
+    tray.bigtreeRequested.connect(guarded(add_bigtree))
+    tray.collectionRequested.connect(guarded(show_collection))
     tray.inventoryRequested.connect(guarded(show_inventory))
     tray.feedRequested.connect(guarded(feed))
     tray.petRequested.connect(guarded(cat.pet))

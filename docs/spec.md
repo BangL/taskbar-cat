@@ -34,12 +34,14 @@ taskbar_cat/
   __main__.py                Start, Single-Instance, Verdrahtung
   bus.py                     D-Bus-Service, KWin-Script laden/entladen, ScreenSaver-Signal
   world.py                   Weltmodell: Plattformen aus Fenstern + Arbeitsflächen (rein, kein Qt)
+  bigtree.py                 Großer Kratzbaum: zufälliger Aufbau je Größe, Kanten und Kletterwände (rein, kein Qt)
   cat.py                     Bedürfnisse, Zustandsautomat, Physik (rein, kein Qt)
   storage.py                 state.json laden/speichern
   sprites.py                 Pixel-Art prozedural erzeugen -> Spritesheet-PNG
   ui/overlay.qml             Layer-Shell-Overlay je Monitor
   ui/overlay.py              Overlay-Verwaltung, Input-Region, Maus-Events
   ui/tray.py                 Tray-Icon + Menü
+  ui/collection.py           Sammlung gespeicherter Kratzbaum-Varianten mit Vorschau
 tests/                       pytest für world, cat, storage
 autostart/taskbar-cat.desktop
 ```

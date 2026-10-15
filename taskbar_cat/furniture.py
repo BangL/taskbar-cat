@@ -1,12 +1,18 @@
-"""Möbel: Katzenbett, Napf, Wollknäuel und Kratzbaum, je eins. Aufgestellt fallen sie
-auf die nächste Kante darunter (Boden oder Fenster), fahren mit dem Fenster mit und
-fallen herunter, wenn es verschwindet; sonst liegen sie im Inventar (rein, ohne Qt)."""
+"""Möbel: Katzenbett, Napf, Wollknäuel und Kratzbaum, je eins, dazu beliebig viele große
+Kratzbäume (bigtree.py). Aufgestellt fallen sie auf die nächste Kante darunter (Boden oder
+Fenster), fahren mit dem Fenster mit und fallen herunter, wenn es verschwindet; sonst
+liegen sie im Inventar. Ein großer Kratzbaum, der an den oberen Rand gezogen wird, klebt
+dort und hängt herab (rein, ohne Qt)."""
 import math
+import random
 
+from . import bigtree
+from .bigtree import Tree, is_tree
 from .world import GRAVITY, Platform, Rect, Win, World
 
-KINDS = ("bed", "bowl", "yarn", "tree")
-NAMES = {"bed": "Katzenbett", "bowl": "Napf", "yarn": "Wollknäuel", "tree": "Kratzbaum"}
+KINDS = ("bed", "bowl", "yarn", "tree", bigtree.KIND)
+NAMES = {"bed": "Katzenbett", "bowl": "Napf", "yarn": "Wollknäuel", "tree": "Kratzbaum",
+         bigtree.KIND: bigtree.NAME}
 # Frame-Höhe in Pixeln, wenn nicht 32 (Breite ist immer 32)
 FRAME_H = {"tree": 64}
 # Sichtbarer Teil im Frame (x, y, w, h): Mausfläche und Abstand zum Bildschirmrand
@@ -24,11 +30,14 @@ DROP_BOUNCE = 0.4     # Anteil der Fallgeschwindigkeit, mit der es wieder hochsp
 REST_VY = 200         # langsamer aufgekommen: liegen bleiben statt hüpfen
 MAX_THROW = 3000
 MAX_SUBSTEP_PX = 20
+SNAP_PX = 40          # Oberkante eines großen Kratzbaums so nah am oberen Rand: er hängt
 
 
 def half_width(kind: str, sprite: float) -> float:
-    """Halbe Breite des sichtbaren Teils in px bei Sprite-Kantenlänge sprite."""
-    return BOX[kind][2] / 2 * sprite / 32
+    """Halbe Breite des sichtbaren Teils in px bei Sprite-Kantenlänge sprite
+    (große Kratzbäume: Furniture.half_width, die Breite hängt am einzelnen Baum)."""
+    w = BOX[kind][2] if kind in BOX else bigtree.DEFAULT[0]
+    return w / 2 * sprite / 32
 
 
 class Body:
@@ -189,8 +198,18 @@ class Body:
 class Furniture:
     def __init__(self):
         self.bodies = {k: Body(k in BOUNCY) for k in KINDS}
+        # große Kratzbäume: "bigtree" steht im Inventar, weitere ("bigtree2" ...) kommen dazu
+        self.trees: dict[str, Tree] = {bigtree.KIND: Tree()}
         self.food = 0   # Portionen im Napf
         self._world_cache: tuple | None = None
+        self._tree_cache: tuple | None = None   # (Schlüssel, Welt ohne, Welt mit Bäumen)
+        self._world: World | None = None         # letzte Welt aus world_with
+        self._sprite: float | None = None
+
+    def half_width(self, kind: str, sprite: float) -> float:
+        if kind in self.trees:
+            return self.trees[kind].size()[0] / 2 * sprite / 32
+        return half_width(kind, sprite)
 
     @property
     def yarn(self) -> Body:
@@ -227,11 +246,20 @@ class Furniture:
     def put(self, kind: str, world: World, x: float, y: float, half: float) -> bool:
         """Mit der Maus halten (Mitte unten bei x, y), bis release es loslässt."""
         self.bodies[kind].hold(x, y)
+        if kind in self.trees:   # Vorschau: hängend, solange er oben dran ist
+            self.trees[kind].hanging = self._near_top(kind, world, self._sprite) is not None
         return True
 
     def release(self, kind: str, vx: float, vy: float) -> None:
-        """Maus losgelassen: fällt herunter; das Knäuel fliegt mit Schwung weiter."""
+        """Maus losgelassen: fällt herunter; das Knäuel fliegt mit Schwung weiter,
+        ein großer Kratzbaum am oberen Rand bleibt dort hängen."""
         self.bodies[kind].throw(vx, vy)
+        if kind in self.trees:
+            top = self._near_top(kind, self._world, self._sprite)
+            if top is not None:
+                self._hang(kind, top)
+            else:
+                self.trees[kind].hanging = False
 
     def place(self, kind: str, world: World, x: float, y: float, half: float) -> bool:
         """Aus dem Inventar aufstellen: bei (x, y) fallen lassen, sonst mitten über
@@ -242,19 +270,129 @@ class Furniture:
             if o is None:
                 return False
             x, y = o.geometry.x + o.geometry.w / 2, o.geometry.y + o.geometry.h / 2
+        if kind in self.trees:
+            self.trees[kind].hanging = False
         self.bodies[kind].drop(x, y)
         return True
 
     def store(self, kind: str) -> None:
+        if kind in self.trees:
+            self.trees[kind].hanging = False
         self.bodies[kind].store()
+
+    # --- große Kratzbäume ---
+
+    def add_tree(self, x: float, y: float, variant: dict | None = None,
+                 rng: random.Random | None = None) -> str:
+        """Großen Kratzbaum bei (x, y) fallen lassen; ist der aus dem Inventar eingelagert,
+        kommt der, sonst ein weiterer mit eigenem Zufall. Liefert seine Art."""
+        if not self.placed(bigtree.KIND):
+            kind = bigtree.KIND
+        else:
+            n = 2
+            while f"{bigtree.KIND}{n}" in self.bodies:
+                n += 1
+            kind = f"{bigtree.KIND}{n}"
+            self.bodies[kind] = Body()
+            self.trees[kind] = Tree(seed=(rng or random).randrange(1, 1 << 30))
+        self.trees[kind].hanging = False
+        self.bodies[kind].drop(x, y)
+        if variant is not None:
+            self.apply_variant(kind, variant)
+        return kind
+
+    def remove_tree(self, kind: str) -> None:
+        """Der aus dem Inventar wird eingelagert, weitere verschwinden ganz."""
+        if kind == bigtree.KIND:
+            self.store(kind)
+        else:
+            self.bodies.pop(kind, None)
+            self.trees.pop(kind, None)
+
+    def resize_tree(self, kind: str, w: float, h: float) -> None:
+        """Stehend bleibt der Fuß, hängend die Oberkante, wo sie ist."""
+        t = self.trees[kind]
+        t.resize(w, h)
+        if t.hanging:
+            self._hang(kind, t.top)
+
+    def apply_variant(self, kind: str, variant: dict) -> None:
+        """Gespeicherte Variante übernehmen; hängend nur, wenn ein oberer Rand da ist."""
+        t = self.trees[kind]
+        t.apply(variant)
+        b = self.bodies[kind]
+        top = self._top_edge(self._world, b.x) if variant.get("hanging") else None
+        if top is not None:
+            self._hang(kind, top)
+        elif t.hanging:              # war hängend, soll stehen: fällt herunter
+            t.hanging = False
+            b.drop(b.x, b.y)
+
+    def _hang(self, kind: str, top: float, sprite: float | None = None) -> None:
+        """Oben bei top festmachen; die Mitte unten (Body-Position) folgt aus der Höhe.
+        Ohne bekannten Maßstab (beim Laden) bleibt y, wie es gespeichert war."""
+        t = self.trees[kind]
+        t.hanging, t.top = True, top
+        b = self.bodies[kind]
+        b.held = False
+        b.vx = b.vy = 0.0
+        sprite = sprite or self._sprite
+        if sprite:
+            b.y = top + t.size()[1] * sprite / 32
+        b.platform = Platform(b.x - 1, b.x + 1, b.y, f"{bigtree.BOARD_ID}{kind}:anchor")
+
+    @staticmethod
+    def _top_edge(world: World | None, x: float) -> float | None:
+        if world is None:
+            return None
+        o = next((o for o in world.outputs if o.geometry.x <= x < o.geometry.x + o.geometry.w), None)
+        return None if o is None else o.work_area.y
+
+    def _near_top(self, kind: str, world: World | None, sprite: float | None) -> float | None:
+        """Oberer Rand, wenn die Oberkante beim Ziehen höchstens SNAP_PX darunter liegt."""
+        if not sprite:
+            return None
+        b = self.bodies[kind]
+        top = self._top_edge(world, b.x)
+        if top is None:
+            return None
+        return top if b.y - self.trees[kind].size()[1] * sprite / 32 <= top + SNAP_PX else None
 
     def kick(self, vx: float) -> None:
         """Wollknäuel anstupsen."""
         self.yarn.kick(vx)
 
     def world_with(self, world: World, sprite: float) -> World:
-        """Welt samt Liegefläche des Kratzbaums als Kante (wie ein schmales Fenster:
-        oben begehbar, unten zum Hängen). Ohne aufgestellten Kratzbaum unverändert."""
+        """Welt samt Liegeflächen der Kratzbäume. Kleiner Kratzbaum: wie ein schmales Fenster
+        (oben begehbar, unten zum Hängen); große: jede Fläche eine Kante, jeder Pfeiler eine
+        Wand zum Hochklettern. Ohne aufgestellte Kratzbäume unverändert."""
+        self._world, self._sprite = world, sprite
+        for kind, t in self.trees.items():
+            if t.hanging and self.bodies[kind].placed and not self.bodies[kind].held:
+                self._hang(kind, t.top, sprite)   # Höhe oder Maßstab geändert: oben bleiben
+        base = self._with_small_tree(world, sprite)
+        used = [(k, pos) for k in self.trees if (pos := self.usable(k, world)) is not None]
+        if not used:
+            return base
+        key = (base, tuple((k, pos, self.trees[k].size(), self.trees[k].hanging, self.trees[k].seed)
+                           for k, pos in used), sprite)
+        if self._tree_cache is None or self._tree_cache[0] != key:
+            wins, walls = [], []
+            for kind, pos in used:
+                w, wl = bigtree.structures(kind, self.trees[kind], pos, sprite)
+                wins += w
+                walls += wl
+            out = World(base.outputs, base.windows + wins, base.blocked)
+            out.walls.extend(walls)
+            self._tree_cache = (key, base, out)
+        return self._tree_cache[2]
+
+    def _without_trees(self, world: World) -> World:
+        """Welt ohne die Bretter der großen Kratzbäume: auf denen landen sie nicht selbst."""
+        c = self._tree_cache
+        return c[1] if c is not None and c[2] is world else world
+
+    def _with_small_tree(self, world: World, sprite: float) -> World:
         pos = self.usable("tree", world)
         if pos is None:
             return world
@@ -268,8 +406,14 @@ class Furniture:
         return self._world_cache[1]
 
     def tick(self, world: World, dt: float, sprite: float) -> None:
+        base = self._without_trees(world)
         for kind, b in self.bodies.items():
-            b.step(world, dt, half_width(kind, sprite))
+            if kind in self.trees:
+                if self.trees[kind].hanging and not b.held:
+                    continue                     # klebt oben, keine Schwerkraft
+                b.step(base, dt, self.half_width(kind, sprite))
+            else:
+                b.step(world, dt, half_width(kind, sprite))
 
     def fill(self, world: World) -> bool:
         """Futter in den Napf kippen. False = kein erreichbarer Napf, direkt füttern."""
@@ -293,24 +437,42 @@ class Furniture:
                 d[k] = {"output": b.pending[0], "offset": b.pending[1]}
             else:
                 d[k] = {"x": b.x, "y": b.y}
+        d[bigtree.KIND + "_trees"] = {k: t.to_dict() for k, t in self.trees.items()}
         return d
+
+    @staticmethod
+    def _load_body(b: "Body", v) -> None:
+        if not isinstance(v, dict):
+            return
+        try:
+            if "x" in v:
+                b.drop(float(v["x"]), float(v["y"]) - 1)
+            elif v.get("output") is not None:   # älteres Format: Boden eines Monitors
+                b.drop(0.0, 0.0)
+                b.pending = (str(v["output"]), float(v.get("offset", 0)))
+        except (KeyError, TypeError, ValueError):
+            b.store()
 
     @classmethod
     def from_dict(cls, d: dict) -> "Furniture":
         """Beim Start fällt alles auf die Kante darunter; Fenster kennt die App da noch nicht."""
         f = cls()
         for k, b in f.bodies.items():
-            v = d.get(k)
-            if not isinstance(v, dict):
+            f._load_body(b, d.get(k))
+        trees = d.get(bigtree.KIND + "_trees")
+        for kind, v in (trees.items() if isinstance(trees, dict) else ()):
+            if not is_tree(kind) or not isinstance(v, dict):
                 continue
-            try:
-                if "x" in v:
-                    b.drop(float(v["x"]), float(v["y"]) - 1)
-                elif v.get("output") is not None:   # älteres Format: Boden eines Monitors
-                    b.drop(0.0, 0.0)
-                    b.pending = (str(v["output"]), float(v.get("offset", 0)))
-            except (KeyError, TypeError, ValueError):
-                b.store()
+            if kind not in f.bodies:            # weiterer Baum: nur mit Standort
+                b = Body()
+                f._load_body(b, d.get(kind))
+                if not b.placed:
+                    continue
+                f.bodies[kind] = b
+            f.trees[kind] = t = Tree.from_dict(v)
+            if t.hanging and f.bodies[kind].placed:
+                f.bodies[kind].y += 1           # klebt oben, statt 1 px darüber zu fallen
+                f._hang(kind, t.top)
         try:
             f.food = max(0, min(BOWL_PORTIONS, int(d.get("food", 0))))
         except (TypeError, ValueError):

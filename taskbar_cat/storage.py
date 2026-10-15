@@ -5,6 +5,7 @@ import sys
 import time
 from pathlib import Path
 
+from .bigtree import valid_variant
 from .config import Config
 from .furniture import Furniture
 from .needs import Needs
@@ -43,6 +44,23 @@ def load_config(path: Path) -> Config:
 
 def load_furniture(path: Path) -> Furniture:
     return Furniture.from_dict(read_dict(path))
+
+
+def load_variants(path: Path) -> list[dict]:
+    """Gespeicherte Kratzbaum-Varianten; kaputte Einträge fallen weg."""
+    return [v for v in read_dict(path).get("favorites", []) if valid_variant(v)]
+
+
+def save_variants(path: Path, variants: list[dict]) -> bool:
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps({"favorites": variants}, indent=2, ensure_ascii=False) + "\n")
+        os.replace(tmp, path)
+    except OSError as e:
+        print(f"taskbar-cat: Speichern fehlgeschlagen: {e}", file=sys.stderr)
+        return False
+    return True
 
 
 def save(path: Path, obj: Needs | Config | Furniture) -> None:

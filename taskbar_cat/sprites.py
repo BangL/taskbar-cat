@@ -9,6 +9,7 @@ from pathlib import Path
 from PyQt6.QtCore import QPointF, QRectF, Qt
 from PyQt6.QtGui import QColor, QImage, QLinearGradient, QPainter, QPen, QPolygonF
 
+from . import bigtree
 from .furniture import FRAME_H
 
 ATLAS_VERSION = 11
@@ -16,7 +17,8 @@ UFO_VERSION = 1
 FURNITURE_VERSION = 5
 FRAME = 32
 ANIMS = {"sit": 2, "groom": 2, "vomit": 2, "walk": 4, "crawl": 4, "jump": 1, "fall": 1, "sleep": 2, "eat": 2, "purr": 2, "dragged": 2, "lie": 2, "climb": 4, "hang": 2,
-         "crouch": 2, "swipe": 2, "cheer": 2, "bat": 2, "scratch": 2}
+         "crouch": 2, "swipe": 2, "cheer": 2, "bat": 2, "scratch": 2, "climb_post": 4,
+         "hammock": 4, "hammock_sleep": 4}
 MOODS = ("normal", "sad", "sick")
 
 FUR_DEFAULT = "#E8913A"
@@ -38,6 +40,12 @@ SISAL = QColor("#D9C08A")
 SISAL_DARK = QColor("#A88B52")
 CARPET = QColor("#8C7B6B")
 CARPET_DARK = QColor("#6A5B4E")
+FURNITURE_OUTLINE = QColor("#2A1A14")
+HAMMOCK = QColor("#6C8FD8")
+HAMMOCK_DARK = QColor("#4A68A8")
+CAVE = QColor("#B07A4A")
+CAVE_HOLE = QColor("#3A2618")
+TOY_COLORS = (YARN, QColor("#5AC8FF"), QColor("#FFE15A"), QColor("#7CD67C"), QColor("#B47CFF"))
 
 
 def _hsv(c: QColor, dh: float = 0, fs: float = 1.0, fv: float = 1.0, h: float | None = None,
@@ -343,6 +351,38 @@ def _climb(c: _Pen, f: int):
     c.head(15, 8, "open")
 
 
+def _climb_post(c: _Pen, f: int):
+    """Am Pfeiler des großen Kratzbaums (rechts): die Pfoten greifen um ihn herum."""
+    front = (0, -2, 0, 2)[f]
+    hind = (0, 2, 0, -2)[f]
+    c.tail([(12, 25), (9, 29), (10, 30)])
+    c.ell(15, 18, 5, 9)
+    c.rect(19, 12 + front, 6, 2)
+    c.rect(19, 16 - front, 6, 2)
+    c.rect(18, 24 + hind, 6, 2)
+    c.stripes([(11, 15), (11, 19)], [(12, 12), (11, 22)])
+    c.head(15, 8, "open")
+
+
+def _hammock_lip(c: _Pen, d: int):
+    """Vorderer Rand der Hängematte über dem Körper, schaukelt mit."""
+    c.ell(16 + d, 30, 13, 2.5, HAMMOCK)
+    c.rect(4 + d, 29, 24, 1, HAMMOCK_DARK)
+
+
+def _hammock(c: _Pen, f: int, sleep: bool = False):
+    """Liegt in der Hängematte (Boden = Unterkante der Matte), Schwanz und Pfote hängen raus."""
+    d = (-1, 0, 1, 0)[f]
+    c.tail([(7 + d, 26), (4 + d, 29), (4 + 2 * d, 31)])
+    c.ell(15 + d, 25, 10, 4)
+    c.stripes([(10 + d, 22), (13 + d, 21), (16 + d, 21)], [(7 + d, 23), (19 + d, 22)])
+    c.rect(20 - d, 27, 2, 4)
+    c.head(22 + d, 23, "closed")
+    _hammock_lip(c, d)
+    if sleep:
+        c.z(25, 10 - f % 2 * 2, 3 + f % 2)
+
+
 def _hang(c: _Pen, f: int):
     """Mit den Vorderpfoten an einer Kante oben hängend, Hinterbeine zappeln."""
     c.rect(10, 0, 3, 3)
@@ -418,7 +458,9 @@ def _cheer(c: _Pen, f: int):
 POSES = {"sit": _sit, "groom": _groom, "vomit": _vomit, "walk": _walk, "crawl": _crawl, "jump": _jump, "fall": _fall, "sleep": _sleep,
          "eat": _eat, "purr": _purr, "dragged": _dragged, "lie": _lie,
          "climb": _climb, "hang": _hang,
-         "crouch": _crouch, "swipe": _swipe, "cheer": _cheer, "bat": _bat, "scratch": _scratch}
+         "crouch": _crouch, "swipe": _swipe, "cheer": _cheer, "bat": _bat, "scratch": _scratch,
+         "climb_post": _climb_post, "hammock": _hammock,
+         "hammock_sleep": lambda c, f: _hammock(c, f, sleep=True)}
 
 
 def _fill_holes(img: QImage, x0: int, y0: int) -> None:
@@ -561,7 +603,7 @@ def render_furniture() -> QImage:
         pen = _Pen(p, "normal")
         draw[name](pen)
         p.end()
-        _outline(img, x0, y0, QColor("#2A1A14"), h)
+        _outline(img, x0, y0, FURNITURE_OUTLINE, h)
     return img
 
 
@@ -579,8 +621,64 @@ def ensure_furniture(cache_dir: Path) -> Path:
     return path
 
 
+def _outline_all(img: QImage, color: QColor) -> None:
+    """Kontur um alle deckenden Pixel eines beliebig großen Bildes."""
+    w, h = img.width(), img.height()
+    solid = {(x, y) for y in range(h) for x in range(w) if img.pixelColor(x, y).alpha() > 0}
+    rgb = color.rgba()
+    for x, y in solid:
+        for nx, ny in ((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)):
+            if 0 <= nx < w and 0 <= ny < h and (nx, ny) not in solid:
+                img.setPixel(nx, ny, rgb)
+
+
+def render_bigtree(w: float, h: float, hanging: bool = False, seed: int = 0) -> QImage:
+    """Großer Kratzbaum (bigtree.layout) in Sprite-Pixeln, so groß wie sein Aufbau."""
+    lay = bigtree.layout(w, h, hanging, seed)
+    img = QImage(lay.w, lay.h, QImage.Format.Format_ARGB32)
+    img.fill(Qt.GlobalColor.transparent)
+    p = QPainter(img)
+    p.setPen(QPen(SISAL_DARK, 2))
+    for (x1, y1), (x2, y2) in lay.struts:        # Äste hinter allem
+        p.drawLine(QPointF(x1, y1), QPointF(x2, y2))
+    for x, y1, y2 in lay.posts:
+        p.fillRect(x - bigtree.POST_W // 2, y1, bigtree.POST_W, y2 - y1, SISAL)
+        for y in range(y1 + 2, y2, 3):
+            p.fillRect(x - bigtree.POST_W // 2, y, bigtree.POST_W, 1, SISAL_DARK)
+    for x, y, n, col in lay.toys:              # Bällchen an Fäden
+        p.fillRect(x, y, 1, n, SISAL_DARK)
+        p.fillRect(x - 1, y + n, 3, 3, TOY_COLORS[col % len(TOY_COLORS)])
+    p.setPen(Qt.PenStyle.NoPen)
+    for b in lay.boards:
+        bw = b.x2 - b.x1
+        if b.style == "hammock":
+            p.setBrush(HAMMOCK)
+            p.drawChord(b.x1, b.y - b.sag - 1, bw, 2 * b.sag, 180 * 16, 180 * 16)
+            p.fillRect(b.x1, b.y - 2, bw, 1, HAMMOCK_DARK)
+        elif b.style == "cave":
+            p.fillRect(b.x1, b.y, bw, b.sag, CAVE)
+            p.fillRect(b.x1, b.y, bw, 2, CARPET)
+            p.setBrush(CAVE_HOLE)
+            p.drawEllipse(b.x1 + bw // 2 - 4, b.y + 4, 8, 8)
+            p.fillRect(b.x1 + bw // 2 - 4, b.y + 8, 8, b.sag - 8 - (2 if lay.hanging else 0), CAVE_HOLE)
+        else:
+            p.fillRect(b.x1, b.y, bw, bigtree.BOARD_H, CARPET)
+            p.fillRect(b.x1, b.y + bigtree.BOARD_H - 1, bw, 1, CARPET_DARK)
+            if b.style == "top":                 # Liegemulde mit Rand
+                p.fillRect(b.x1, b.y - 2, 2, 2, BED)
+                p.fillRect(b.x2 - 2, b.y - 2, 2, 2, BED)
+                p.fillRect(b.x1 + 2, b.y, bw - 4, 1, CUSHION)
+    p.fillRect(1, lay.base_y, lay.w - 2, bigtree.BASE_H, CARPET)
+    p.fillRect(1, lay.base_y + (bigtree.BASE_H - 1 if lay.hanging else 0), lay.w - 2, 1, CARPET_DARK)
+    p.end()
+    _outline_all(img, FURNITURE_OUTLINE)
+    return img
+
+
 def furniture_icon(kind: str) -> QImage:
     """Bild fürs Inventar (FURNITURE_ICON), so hoch wie der Frame."""
+    if bigtree.is_tree(kind):
+        return render_bigtree(40, 64)
     h = max(furniture_height(n) for n in FURNITURE_ICON[kind])
     img = QImage(FRAME, h, QImage.Format.Format_ARGB32)
     img.fill(Qt.GlobalColor.transparent)

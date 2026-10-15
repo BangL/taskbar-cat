@@ -42,6 +42,11 @@ def furniture_file() -> Path:
     return data_dir() / "furniture.json"
 
 
+def bigtree_variants_file() -> Path:
+    """Gespeicherte Varianten großer Kratzbäume (Sammlung)."""
+    return data_dir() / "bigtree-favorites.json"
+
+
 def resource_file(*parts: str) -> Path:
     """Mitgelieferte Datei als echter Pfad.
 
