@@ -715,3 +715,83 @@ def test_cat_pushes_it_now_and_then_on_her_own():
         c.rng = random.Random(seed)
         pushed += run(c, w, 120, until=lambda c: f.tipped)
     assert pushed >= 2
+
+
+def test_flies_come_to_the_spilled_food():
+    from taskbar_cat.furniture import FLY_DELAY, FLY_EVERY, fly_path
+    w, f, c = bowl_at_edge(food=2)
+    c._seek_push(1, w, fresh=True)
+    assert run(c, w, 30, until=lambda c: f.tipped)
+    assert f.flies == 0                                        # erst nach ein paar Sekunden
+    settle(f, w, FLY_DELAY + 0.1)
+    assert f.flies == 1
+    settle(f, w, FLY_EVERY * 3)
+    assert f.flies == 2                                        # höchstens eine je Portion
+    f.put("bowl", w, 500, 300, HALF)                           # aufgehoben: weg
+    assert f.flies == 0 and f.spill_age == 0
+    for i in range(3):
+        pts = [fly_path(t / 10, i) for t in range(200)]
+        assert all(abs(dx) <= 8 and -12 <= dy <= -2 for dx, dy, _ in pts)   # schwirren darüber
+        assert {wing for *_, wing in pts} == {True, False}
+    assert fly_path(1.0, 0)[:2] != fly_path(1.0, 1)[:2]
+
+
+def spilled(food=3, seed=0):
+    """Napf umgekippt auf dem Boden, Fliegen schwirren schon; die Katze ein Stück daneben."""
+    w = world()
+    f = standing(w, "bowl", 1200, 500)
+    f.tipped, f.spill, f.spill_side = True, food, 1
+    settle(f, w, 4 + 2 * food)            # bis alle da sind
+    c = cat_with(w, f, x=900, satiety=100, energy=100, affection=100)
+    c.rng = random.Random(seed)
+    return w, f, c
+
+
+def test_cat_hunts_and_eats_a_fly():
+    w, f, c = spilled()
+    assert f.flies == 3 and c._start_fly_hunt(w) and c.state == "fly_hunt"
+    states = set()
+    for _ in range(int(30 / DT)):
+        c.tick(DT, w, False)
+        states.add(c.state)
+        if f.flies_eaten:
+            break
+    assert f.flies_eaten == 1 and {"fly_hunt", "fly_crouch", "fly_swat"} <= states
+    assert c.frame_key(0)[0] == "bat"
+    run(c, w, 1)
+    assert c.state in ("groom", "vomit")                        # Maul lecken oder es kommt hoch
+    assert f.flies == 2 and f.fly_ids == [1, 2]                 # die gefressene ist weg ...
+    settle(f, w, 0.5)                                           # 1,5 s nach dem Fang
+    assert f.flies == 2
+    settle(f, w, 1.0)
+    assert f.flies == 3 and f.fly_ids == [1, 2, 3]              # ... und nach 2 s kommt eine neue
+
+
+def test_sometimes_a_fly_makes_her_sick():
+    w, f, c = spilled()
+    sick = 0
+    for _ in range(300):
+        c._fly_caught = True
+        c._after_fly_swat(w)
+        sick += c.state == "vomit"
+    assert 10 <= sick <= 60                                     # etwa jede zehnte
+    c.needs.satiety = 50
+    c._vomit()
+    assert c.needs.satiety < 50 and c.state == "vomit"
+
+
+def test_flies_lure_her_on_her_own():
+    hunted = 0
+    for seed in range(6):
+        w, f, c = spilled(seed=seed)
+        hunted += run(c, w, 60, until=lambda c: c.state == "fly_hunt")
+    assert hunted >= 4
+
+
+def test_hunt_ends_when_the_bowl_is_picked_up():
+    w, f, c = spilled()
+    c._start_fly_hunt(w)
+    run(c, w, 0.5)
+    f.put("bowl", w, 500, 300, HALF)
+    run(c, w, 1)
+    assert c.state not in ("fly_hunt", "fly_crouch", "fly_swat")

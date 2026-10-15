@@ -11,7 +11,7 @@ from PyQt6.QtQuick import QQuickImageProvider
 
 from .. import bigtree, sprites
 from ..cat import Cat
-from ..furniture import BOX, Furniture
+from ..furniture import BOX, Furniture, fly_path
 from ..guard import guarded
 from ..interaction import DragTracker, RubDetector
 from ..paths import resource_file
@@ -118,6 +118,7 @@ class OverlayManager(QObject):
         self._fronts: list[dict] = []            # Hängematte vor der Katze (wie _bigtrees)
         self._toys: list[dict] = []              # Bällchen der großen Kratzbäume (global)
         self._toy_angles: list[float] = []       # deren Auslenkung (rad), gleiche Reihenfolge
+        self._pile: tuple[float, float] | None = None   # verschüttetes Futter (Mitte unten, global)
         self._furn_pos: dict[str, tuple[float, float]] = {}
         self._lying: tuple[str, float] | None = None   # (Hängematte, seit wann sie drin liegt)
         self._sink: tuple[str, str, int] | None = None  # (Baum, Brett, Pixel) Durchhängen
@@ -179,6 +180,7 @@ class OverlayManager(QObject):
         self._fronts = []
         self._toys = []
         self._toy_angles = []
+        self._pile = None
         if furniture is None:
             return []
         out = []
@@ -225,11 +227,22 @@ class OverlayManager(QObject):
             elif furniture.bowl_upside_down:
                 out.append((kind, x, y, "bowl_tipped", None))
                 if furniture.spill and furniture.tipped:
-                    out.append((kind, x + furniture.spill_side * sprites.SPILL_DX * s, y,
-                                f"spill_{min(furniture.spill, sprites.BOWL_LEVELS)}", None))
+                    self._pile = furniture.pile(size)
+                    out.append((kind, *self._pile, f"spill_{min(furniture.spill, sprites.BOWL_LEVELS)}", None))
             else:
                 level = min(furniture.food, sprites.BOWL_LEVELS)
                 out.append((kind, x, y, f"bowl_{level}", None))
+        return out
+
+    def _flies(self, furniture: Furniture | None, size: int) -> list[float]:
+        """Fliegen über dem verschütteten Futter, flach je Fliege: x, y (global), Flügel oben.
+        Ihre Uhr ist furniture.spill_age, damit die Katze sie dort fängt, wo man sie sieht."""
+        if furniture is None or self._pile is None:
+            return []
+        out = []
+        for i in furniture.fly_ids:
+            x, y = furniture.fly_at(i, size)
+            out += [x, y, float(fly_path(furniture.spill_age, i)[2])]
         return out
 
     def _hammock_sink(self, cat: Cat, t: float) -> float:
@@ -254,6 +267,7 @@ class OverlayManager(QObject):
                           .adjusted(-MASK_MARGIN, -MASK_MARGIN, MASK_MARGIN, MASK_MARGIN)
                           if cat.visible else QRect())
         furn = self._furniture_frames(cat, world, furniture)
+        flies = self._flies(furniture, size)
         for ov in self._overlays.values():
             o = ov.origin
             lx, ly = cat.x - o.x(), cat.y - o.y() + sink
@@ -293,6 +307,10 @@ class OverlayManager(QObject):
             if self._toy_angles != ov.toy_angles:   # nur die Winkel: Repeater bleibt stehen
                 ov.toy_angles = list(self._toy_angles)
                 w.setProperty("toyAngles", ov.toy_angles)
+            local_flies = [v - (o.x(), o.y(), 0)[k % 3] for k, v in enumerate(flies)]
+            w.setProperty("flySize", size / sprites.FRAME)
+            w.setProperty("flyPos", local_flies)
+            w.setProperty("flyCount", len(flies) // 3)
             fronts = [{**t, "x": t["x"] - o.x(), "y": t["y"] - o.y()} for t in self._fronts]
             if fronts != ov.fronts:
                 ov.fronts = fronts

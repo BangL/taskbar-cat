@@ -743,3 +743,29 @@ def test_each_tree_activity_can_be_switched_off(name, state):
             if seen:
                 break
         assert seen == expected, (name, p)
+
+
+def test_overlay_draws_flies_over_spilled_food(overlay):
+    from taskbar_cat.world import Output, Rect, Win, World
+    om, ov = overlay
+    g = ov.screen.geometry()
+    w = World([Output("x", Rect(0, 0, g.width(), g.height()), Rect(0, 0, g.width(), g.height()))], [])
+    f = Furniture()
+    f.place("bowl", w, 300, 100, 20)
+    settle(f, w)
+    f.tipped, f.spill = True, 3
+    settle(f, w, 10)
+    c = Cat(Needs(), random.Random(0))
+    c.furniture = f
+    c.spawn(w)
+    om.render(c, w, 1.0, f)
+    pos = ov.window.property("flyPos")
+    assert ov.window.property("flyCount") == 3 and len(pos) == 9
+    assert all(abs(pos[3 * i] - 300) < 3 * c.sprite / 32 * 20 for i in range(3))
+    assert all(pos[3 * i + 1] < f.bodies["bowl"].y for i in range(3))
+    f.spill_age += 0.2                                         # ihre Uhr: so lange liegt es da
+    om.render(c, w, 1.2, f)
+    assert ov.window.property("flyPos") != pos                 # sie fliegen herum
+    f.tipped = False
+    om.render(c, w, 1.4, f)
+    assert ov.window.property("flyCount") == 0

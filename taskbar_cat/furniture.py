@@ -37,6 +37,20 @@ TOY_DAMP = 1.5        # 1/s, so schnell kommt es zur Ruhe
 TOY_KICK = 7.0        # rad/s je Pfotenschlag
 TOY_MAX = 1.3         # rad, weiter schwingt es nicht
 TOY_STEP = 1 / 120    # s, Teilschritte fürs Pendel
+# Fliegen über verschüttetem Futter
+FLY_DELAY = 4.0       # s, so lange liegt es, bis die erste kommt
+FLY_EVERY = 2.0       # s, danach kommt alle so viele Sekunden eine weitere
+SPILL_DX = 10         # so weit (Frame-Pixel) neben dem umgedrehten Napf liegt das Futter
+
+
+def fly_path(t: float, i: int) -> tuple[float, float, bool]:
+    """Wo Fliege i zur Zeit t ist: (dx, dy) in Frame-Pixeln ab der Mitte des Futters
+    (dy nach oben negativ) und ob die Flügel gerade oben sind. Unruhige Achten, je Fliege anders."""
+    a, b = 2.3 + 0.7 * i, 3.1 + 0.5 * i
+    ph = 1.7 * i
+    dx = 6 * math.sin(a * t + ph) + 2 * math.sin(3.7 * b * t)
+    dy = -7 - 3 * math.sin(b * t + 2 * ph) - 1.5 * math.cos(5.3 * a * t)
+    return dx, dy, int(t * 24 + i) % 2 == 0
 
 
 def half_width(kind: str, sprite: float) -> float:
@@ -217,6 +231,10 @@ class Furniture:
         self.tipped = False
         self.spill = 0          # verschüttete Portionen
         self.spill_side = 1     # auf dieser Seite des Napfs liegt das Futter
+        self.spill_age = 0.0    # s, so lange liegt es schon da (lockt Fliegen an; ihre Flugzeit)
+        self.fly_ids: list[int] = []   # Fliegen, die gerade da sind (Nummer für fly_path), älteste zuerst
+        self.flies_eaten = 0    # von der Katze gefangen; neue kommen nach
+        self._fly_wait = FLY_DELAY   # s bis zur nächsten Fliege
         self._shoved = False    # rutscht oder fällt gerade, weil sie ihn geschubst hat
         self.toy_swing: dict[tuple[str, int], list[float]] = {}   # (Baum, Bällchen) -> [Winkel, rad/s]
         self._world_cache: tuple | None = None
@@ -304,6 +322,51 @@ class Furniture:
     def _right_bowl(self) -> None:
         self.tipped = self._shoved = False
         self.spill = 0
+        self.spill_age = 0.0
+        self.fly_ids = []
+        self.flies_eaten = 0
+        self._fly_wait = FLY_DELAY
+
+    @property
+    def flies(self) -> int:
+        """So viele Fliegen schwirren gerade über dem verschütteten Futter."""
+        return len(self.fly_ids)
+
+    def _lure_flies(self, dt: float) -> None:
+        """Nach FLY_DELAY kommt eine, dann alle FLY_EVERY eine weitere, höchstens eine je
+        Portion; ist eine gefressen, kommt nach FLY_EVERY die nächste."""
+        if not (self.tipped and self.spill):
+            self.spill_age = 0.0
+            return
+        self.spill_age += dt
+        if len(self.fly_ids) >= self.spill:
+            self._fly_wait = FLY_EVERY
+            return
+        self._fly_wait -= dt
+        if self._fly_wait <= 0:
+            self.fly_ids.append(max(self.fly_ids, default=self.flies_eaten - 1) + 1)
+            self._fly_wait = FLY_EVERY
+
+    def pile(self, sprite: float) -> tuple[float, float] | None:
+        """Mitte unten des verschütteten Futters (global)."""
+        b = self.bodies["bowl"]
+        if not (self.tipped and self.spill and b.placed):
+            return None
+        return b.x + self.spill_side * SPILL_DX * sprite / 32, b.y
+
+    def fly_at(self, fly: int, sprite: float) -> tuple[float, float] | None:
+        """Wo Fliege fly gerade ist (global)."""
+        pile = self.pile(sprite)
+        if pile is None or fly not in self.fly_ids:
+            return None
+        dx, dy, _ = fly_path(self.spill_age, fly)
+        return pile[0] + dx * sprite / 32, pile[1] + dy * sprite / 32
+
+    def eat_fly(self) -> None:
+        """Die älteste Fliege ist gefressen."""
+        if self.fly_ids:
+            self.fly_ids.pop(0)
+            self.flies_eaten += 1
 
     def bat_toy(self, kind: str, toy: int, direction: int) -> None:
         """Mit der Pfote nach einem Bällchen schlagen: es pendelt in diese Richtung."""
@@ -480,6 +543,7 @@ class Furniture:
             else:
                 b.step(world, dt, half_width(kind, sprite))
         self._swing_toys(dt, sprite)
+        self._lure_flies(dt)
         if self._shoved:
             if bowl.held or not bowl.placed:
                 self._shoved = False

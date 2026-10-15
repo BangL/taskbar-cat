@@ -66,6 +66,13 @@ BOWL_NUDGE_S = 0.6
 TOY_PAW = 6              # Frame-Pixel von ihrer Mitte bis unter das Bällchen
 TOY_SWATS = (2, 4)
 SWAT_S = 0.5
+# Fliegen über verschüttetem Futter: hin, lauern, mit der Pfote schnappen, fressen
+P_FLY_HUNT = 0.5         # je Entscheidung, solange welche da sind
+FLY_CATCH = 0.5          # Trefferchance je Schlag
+FLY_SWATS = 4            # so oft versucht sie es, dann gibt sie auf
+FLY_PAW = 16             # Frame-Pixel von ihrer Mitte bis zur Pfote beim Hieb (wie beim Knäuel)
+FLY_REACH = 5            # Frame-Pixel: so nah muss die Fliege an der Pfote sein
+P_FLY_SICK = 0.1         # nach einer gefressenen Fliege übergibt sie sich
 # Jagd am großen Kratzbaum: auf die Fläche direkt unter dem Mauszeiger springen
 TREE_CHASE_UP = 120      # px: so weit darf der Zeiger über dieser Fläche sein
 
@@ -76,7 +83,8 @@ ANIM_FOR_STATE = {"chase": "walk", "approach": "walk", "flee": "walk", "seek": "
                   "beamed": "dragged", "abducted": "sit", "cave_in": "cave_in", "cave": "cave_peek",
                   "cave_duck": "cave_duck", "cave_sleep": "cave_sleep", "cave_butt": "cave_butt",
                   "cave_out": "crawl", "nudge": "bat",
-                  "to_toy": "walk", "swat": "swipe"}
+                  "to_toy": "walk", "swat": "swipe", "fly_hunt": "walk", "fly_crouch": "crouch",
+                  "fly_swat": "bat"}
 MOOD_NAME = {Mood.NORMAL: "normal", Mood.SAD: "sad", Mood.SICK: "sick"}
 # Unter einer niedrigen Fensterkante passt sie nicht aufrecht durch
 CRAMPED_ANIM = {"walk": "crawl", "sit": "lie", "groom": "lie"}
@@ -143,6 +151,8 @@ class Cat:
         self._post: tuple[str, int] | None = None   # (großer Kratzbaum, Pfeiler), an dem sie kratzt
         self._toy: tuple[str, int] | None = None    # (großer Kratzbaum, Bällchen), nach dem sie schlägt
         self._swats_left = 0
+        self._fly: int | None = None   # Fliege, die sie jagt (Furniture.fly_ids)
+        self._fly_caught = False
 
     # --- Zustand von außen ---
 
@@ -310,7 +320,7 @@ class Cat:
 
     def _activity(self) -> str:
         if self.state in AIRBORNE + CLINGING + ("walk", "approach", "dragged", "chase", "crouch", "flee", "seek", "bat",
-                                                "to_toy", "swat"):
+                                                "to_toy", "swat", "fly_hunt", "fly_crouch", "fly_swat"):
             return "active"
         return "sleep" if self.state in ("sleep", "cave_sleep") else "rest"
 
@@ -414,8 +424,7 @@ class Cat:
         if self._queasy:          # zu wild geschüttelt
             self._queasy = False
             self._shakes = 0.0
-            self.needs.satiety = max(0.0, self.needs.satiety - VOMIT_SATIETY)
-            self._set("vomit", VOMIT_S)
+            self._vomit()
         elif self._goal is not None and self.state == "idle_sit":
             self.state = "seek"   # zum Möbel heruntergesprungen: weiterlaufen
 
@@ -520,6 +529,9 @@ class Cat:
         if self.state == "to_toy":
             self._to_toy(dt, world)
             return
+        if self.state == "fly_hunt":
+            self._fly_hunt(dt, world)
+            return
         if self.state == "sleep":
             bed = self.furniture.usable("bed", world)
             if self._in_bed and (bed is None or abs(bed[0] - self.x) > 1 or abs(bed[1] - self.y) > 1):
@@ -537,6 +549,10 @@ class Cat:
                 self._after_nudge(world)
             elif self.state == "swat":
                 self._swat(world)
+            elif self.state == "fly_crouch":
+                self._fly_swat()
+            elif self.state == "fly_swat":
+                self._after_fly_swat(world)
             elif self.state == "bat":   # hinterher oder erst mal verschnaufen
                 if self._bats_left <= 0 or not self._seek("yarn", world):
                     self._set("idle_sit", self.rng.uniform(3, 10))
@@ -794,6 +810,8 @@ class Cat:
         edge = self._bowl_edge(world)   # Würfel nur, wenn der Napf an einer Kante steht
         if edge and self.rng.random() < P_BOWL_PUSH and self._seek_push(edge, world, fresh=True):
             return
+        if self.furniture.flies and self.rng.random() < P_FLY_HUNT and self._start_fly_hunt(world):
+            return
         # Würfel nur mit Knäuel bzw. Kratzbaum, sonst verschiebt sich der Zufall für alles andere
         if (self.furniture.usable("yarn", world) is not None
                 and self.rng.random() < self.cfg.p_yarn and self._seek("yarn", world)):
@@ -985,6 +1003,74 @@ class Cat:
         self._swats_left -= 1
         self.furniture.bat_toy(*self._toy, self.facing)
         self._set("swat", SWAT_S)
+
+    def _start_fly_hunt(self, world: World) -> bool:
+        """Zum verschütteten Futter, über dem Fliegen schwirren (zu Fuß, sonst hinspringen
+        oder herunterfallen und dann neu entscheiden)."""
+        pile = self.furniture.pile(self.sprite)
+        q = self.furniture.platform("bowl")
+        way = self._way(world, pile[0], q) if pile is not None and q is not None and self._allowed(world, q) else None
+        if way == "jump":
+            self._jump_to(q, pile[0])
+        elif way == "fall":
+            self._start_fall(floors_only=True)
+        elif way == "walk":
+            self._fly = self.furniture.fly_ids[0]
+            self._swats_left = FLY_SWATS
+            self._set("fly_hunt", math.inf)
+        return way is not None
+
+    def _fly_hunt(self, dt: float, world: World) -> None:
+        """Unter der Fliege herlaufen; nah genug: lauern."""
+        if self._fly not in self.furniture.fly_ids:      # schon weg (gefressen, Napf aufgehoben)
+            self._fly = None if not self.furniture.flies else self.furniture.fly_ids[0]
+            if self._fly is None:
+                self._set("idle_sit", self.rng.uniform(2, 4))
+                return
+        fx, _ = self.furniture.fly_at(self._fly, self.sprite)
+        p = self.platform
+        reach = FLY_REACH * self.sprite / 32
+        if not p.x1 - reach <= fx <= p.x2 + reach:      # nicht über ihrer Kante: lassen
+            self._fly = None
+            self._set("idle_sit", self.rng.uniform(2, 4))
+            return
+        side = 1 if fx >= self.x else -1                 # von ihrer Seite her, Pfote voraus
+        tx = min(max(fx - side * FLY_PAW * self.sprite / 32, p.x1), p.x2)
+        self.facing = side
+        if abs(tx - self.x) <= reach:
+            self._set("fly_crouch", self.rng.uniform(0.3, 0.7))
+            return
+        step = self._speed(self.cfg.walk_speed) * dt
+        self.x += max(-step, min(step, tx - self.x))
+
+    def _fly_swat(self) -> None:
+        """Hochschnellen und mit der Pfote schnappen."""
+        self._swats_left -= 1
+        pos = self.furniture.fly_at(self._fly, self.sprite) if self._fly is not None else None
+        paw = self.x + self.facing * FLY_PAW * self.sprite / 32
+        self._fly_caught = (pos is not None and abs(pos[0] - paw) <= 2 * FLY_REACH * self.sprite / 32
+                            and self.rng.random() < FLY_CATCH)
+        if self._fly_caught:
+            self.furniture.eat_fly()
+        self._set("fly_swat", 0.4)
+
+    def _after_fly_swat(self, world: World) -> None:
+        if self._fly_caught:                  # gefressen: Maul lecken, manchmal kommt es wieder hoch
+            self._fly_caught = False
+            self._fly = None
+            if self.rng.random() < P_FLY_SICK:
+                self._vomit()
+            else:
+                self._set("groom", 1.5)
+        elif self._swats_left > 0 and self.furniture.flies:
+            self._set("fly_hunt", math.inf)   # daneben: hinterher
+        else:
+            self._fly = None
+            self._set("idle_sit", self.rng.uniform(2, 4))
+
+    def _vomit(self) -> None:
+        self.needs.satiety = max(0.0, self.needs.satiety - VOMIT_SATIETY)
+        self._set("vomit", VOMIT_S)
 
     def _tree_hop(self, world: World, cx: float, cy: float) -> Platform | None:
         """Beim Spielen am großen Kratzbaum: Fläche direkt unter dem Mauszeiger, auf die sie

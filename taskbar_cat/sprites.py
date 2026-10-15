@@ -607,7 +607,6 @@ FURNITURE_FRAMES = ("bed_back", "bed_front", "bowl_0", "bowl_1", "bowl_2", "bowl
                     "tree", "bowl_tipped", "spill_1", "spill_2", "spill_3")
 FURNITURE_ROWS = max(FRAME_H.values()) // FRAME   # Atlas-Höhe in Frames; kleine stehen unten
 BOWL_LEVELS = 3   # Frames bowl_0 .. bowl_3, je Portion im Napf eins; spill_1 .. spill_3 verschüttet
-SPILL_DX = 10     # so weit (Frame-Pixel) neben dem umgedrehten Napf liegt das Futter
 # Frames fürs Inventarbild, übereinander gezeichnet
 FURNITURE_ICON = {"bed": ("bed_back", "bed_front"), "bowl": ("bowl_3",), "yarn": ("yarn",), "tree": ("tree",)}
 

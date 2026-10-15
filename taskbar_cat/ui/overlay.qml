@@ -37,6 +37,10 @@ Window {
     // string, outline};
     // toyAngles: Auslenkung je Bällchen in rad (positiv = nach rechts)
     property var bigtreeToys: []
+    // Fliegen über verschüttetem Futter: flyPos flach je Fliege x, y (lokal), Flügel oben (0/1)
+    property int flyCount: 0
+    property var flyPos: []
+    property real flySize: 1
     property var toyAngles: []
     // Vor der Katze: durchhängende Hängematte oder Höhlenwand: {src (.../front), x, y, w, h}
     property var bigtreeFronts: []
@@ -172,6 +176,22 @@ Window {
             height: Math.round(modelData.h)
             smooth: false
             cache: false
+        }
+    }
+
+    Repeater {
+        model: win.flyCount
+        Item {
+            readonly property real s: win.flySize
+            x: Math.round((win.flyPos[3 * index] || 0) - s)
+            y: Math.round((win.flyPos[3 * index + 1] || 0) - s)
+            Rectangle { width: 2 * win.flySize; height: win.flySize; color: "#1E1E1E" }   // Körper
+            Rectangle {                                                                // Flügel
+                x: win.flyPos[3 * index + 2] ? 0 : win.flySize
+                y: -win.flySize
+                width: win.flySize; height: win.flySize
+                color: "#CFE3F0"
+            }
         }
     }
 
