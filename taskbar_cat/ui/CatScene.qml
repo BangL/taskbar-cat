@@ -54,7 +54,7 @@ Item {
     signal catMoved(real x, real y, int buttons)
     signal catReleased(real x, real y, int button)
     signal catCanceled()
-    signal bigtreeWheel(string kind, real dx, real dy)
+    signal bigtreeWheel(string kind, real dx, real dy, bool ctrl)
 
     Repeater {
         model: scene.platforms
@@ -90,11 +90,13 @@ Item {
                 smooth: false
                 cache: false
             }
-            // Mausrad: hoch/runter = Höhe, seitlich = Breite (Tasten gehen an die Katze)
+            // Mausrad: hoch/runter = Höhe, seitlich = Breite, mit Strg auch hoch/runter
+            // die Breite (Tasten gehen an die Katze)
             MouseArea {
                 anchors.fill: parent
                 acceptedButtons: Qt.NoButton
-                onWheel: (e) => scene.bigtreeWheel(modelData.kind, e.angleDelta.x, e.angleDelta.y)
+                onWheel: (e) => scene.bigtreeWheel(modelData.kind, e.angleDelta.x, e.angleDelta.y,
+                                                   (e.modifiers & Qt.ControlModifier) !== 0)
             }
         }
     }

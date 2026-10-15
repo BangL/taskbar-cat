@@ -53,9 +53,10 @@ SPECS: dict[str, Spec] = {
     "p_cave": Spec("Höhle", "float", 0, 1, 0.05, "",
                    "Anteil der Besuche am großen Kratzbaum, bei denen sie in die Höhle geht"),
     "p_toy": Spec("Bällchen", "float", 0, 1, 0.05, "",
-                  "Auf einer Fläche mit erreichbarem Bällchen: Anteil, in dem sie danach schlägt"),
+                  "Anteil, in dem sie nach einem erreichbaren Bällchen schlägt: am großen Kratzbaum "
+                  "von der Fläche darunter, am kleinen vom Boden aus"),
     "sisal_scratches": Spec("Sisal zerfranst nach", "int", 1, 50, 1, "mal Kratzen",
-                            "So oft an einem Pfeiler des großen Kratzbaums gekratzt, ist er ganz zerfranst "
+                            "So oft an einem Pfeiler gekratzt, ist er ganz zerfranst "
                             "(Rechtsklick auf den Baum -> \"Neuen Sisal\")"),
 }
 

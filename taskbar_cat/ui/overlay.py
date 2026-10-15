@@ -20,7 +20,7 @@ from PyQt6.QtQuick import QQuickImageProvider
 from .. import bigtree, sprites
 from ..backend.base import Backend
 from ..cat import Cat
-from ..furniture import Furniture, fly_path
+from ..furniture import FRAME_H, Furniture, fly_path
 from ..guard import guarded
 from ..interaction import DragTracker, RubDetector
 from ..paths import resource_file
@@ -97,7 +97,7 @@ class OverlayManager(QObject):
     furnitureMoved = pyqtSignal(str, float, float)   # Art, neue Mitte unten (global)
     furnitureReleased = pyqtSignal(str, float, float)  # Art, Wurfgeschwindigkeit
     furnitureMenu = pyqtSignal(str, QPoint)
-    furnitureWheel = pyqtSignal(str, float, float)    # großer Kratzbaum, Mausrad x/y
+    furnitureWheel = pyqtSignal(str, float, float, bool)  # großer Kratzbaum, Mausrad x/y, Strg
 
     def __init__(self, engine: QQmlEngine, atlas: Path, debug: bool,
                  ufo: tuple[Path, Path] | None = None, furniture: Path | None = None,
@@ -134,6 +134,7 @@ class OverlayManager(QObject):
         self._toy_angles: list[float] = []       # deren Auslenkung (rad), gleiche Reihenfolge
         self._pile: tuple[float, float] | None = None   # verschüttetes Futter (Mitte unten, global)
         self._furn_pos: dict[str, tuple[float, float]] = {}
+        self._locked: set[str] = set()           # festgestellte Bäume: kein Ziehen
         self._lying: tuple[str, float] | None = None   # (Hängematte, seit wann sie drin liegt)
         self._sink: tuple[str, str, int] | None = None  # (Baum, Brett, Pixel) Durchhängen
         self._grabbed: str | None = None         # "cat", Möbelart oder None
@@ -180,7 +181,8 @@ class OverlayManager(QObject):
         scene.catMoved.connect(guarded(lambda x, y, b, ov=ov: self._moved(ov, x, y, b)))
         scene.catReleased.connect(guarded(lambda x, y, b, ov=ov: self._released(ov, x, y, b)))
         scene.catCanceled.connect(guarded(self._cancel_drag))
-        scene.bigtreeWheel.connect(guarded(lambda k, dx, dy: self.furnitureWheel.emit(k, dx, dy)))
+        scene.bigtreeWheel.connect(
+            guarded(lambda k, dx, dy, ctrl: self.furnitureWheel.emit(k, dx, dy, ctrl)))
         win.show()
         self._overlays[screen] = ov
 
@@ -198,6 +200,7 @@ class OverlayManager(QObject):
         self._furn_rects = {}
         self._furn_pos = {}
         self._furn_parts = {}
+        self._locked = set()
         self._bigtrees = []
         self._fronts = []
         self._toys = []
@@ -212,13 +215,17 @@ class OverlayManager(QObject):
             if pos is None:
                 continue
             x, y = self._furn_pos[kind] = pos
+            if furniture.locked(kind):
+                self._locked.add(kind)
             if kind in furniture.trees:
                 self._bigtree_frames(furniture, kind, pos, size, cat)
                 continue
             if kind == "bed":
                 frames = (kind, x, y, "bed_back", "bed_front" if cat.in_bed else None)
             elif kind == "tree":
-                frames = (kind, x, y, "tree", None)
+                frames = (kind, x, y, furniture.tree_frame(), None)
+                self._add_toys(furniture, kind, x - size / 2, y - FRAME_H["tree"] * size / sprites.FRAME,
+                               size / sprites.FRAME)
             elif kind == "yarn":   # Fadenlinien wechseln alle Achtel-Sprite beim Rollen
                 frames = (kind, x, y, ("yarn", "yarn_roll")[int(x / (size / 8)) % 2], None)
             elif furniture.bowl_upside_down:
@@ -246,12 +253,7 @@ class OverlayManager(QObject):
         load = self._sink[1:] if self._sink is not None and self._sink[0] == kind else None
         self._bigtrees.append({"kind": kind, "src": bigtree_source(tree, load),
                                "x": left, "y": top, "w": lay.w * s, "h": lay.h * s})
-        for i, (tx, ty, n, col) in enumerate(lay.toys):   # pendeln, also nicht im Bild
-            self._toys.append({"x": left + (tx + 0.5) * s, "y": top + ty * s, "len": n * s, "s": s,
-                               "color": sprites.TOY_COLORS[col % len(sprites.TOY_COLORS)].name(),
-                               "string": sprites.SISAL_DARK.name(),
-                               "outline": sprites.FURNITURE_OUTLINE.name()})
-            self._toy_angles.append(furniture.toy_angle(kind, i))
+        self._add_toys(furniture, kind, left, top, s)
         behind = cat.behind()
         for part in (load, (behind[1], 1) if behind is not None and behind[0] == kind else None):
             front = bigtree.front_part(lay, *part) if part is not None else None
@@ -259,6 +261,16 @@ class OverlayManager(QObject):
                 fx, fy, fw, fh = front
                 self._fronts.append({"src": bigtree_source(tree, part, front=True),
                                      "x": left + fx * s, "y": top + fy * s, "w": fw * s, "h": fh * s})
+
+    def _add_toys(self, furniture: Furniture, kind: str, left: float, top: float, s: float) -> None:
+        """Bällchen eines Kratzbaums (links oben seines Bildes bei left, top) fürs QML;
+        sie pendeln, stecken also nicht im Bild."""
+        for i, (tx, ty, n, col) in enumerate(furniture.toys_of(kind)):
+            self._toys.append({"x": left + (tx + 0.5) * s, "y": top + ty * s, "len": n * s, "s": s,
+                               "color": sprites.TOY_COLORS[col % len(sprites.TOY_COLORS)].name(),
+                               "string": sprites.SISAL_DARK.name(),
+                               "outline": sprites.FURNITURE_OUTLINE.name()})
+            self._toy_angles.append(furniture.toy_angle(kind, i))
 
     def _flies(self, furniture: Furniture | None, size: int) -> list[float]:
         """Fliegen über dem verschütteten Futter, flach je Fliege: x, y (global), Flügel oben.
@@ -414,7 +426,7 @@ class OverlayManager(QObject):
                 self.rightClicked.emit(pos)
             else:
                 self.furnitureMenu.emit(hit, pos)
-        elif button == Qt.MouseButton.LeftButton.value and hit is not None:
+        elif button == Qt.MouseButton.LeftButton.value and hit is not None and hit not in self._locked:
             self._grabbed = hit
             if hit != "cat":   # Abstand Zeiger zum Möbel, damit es nicht springt
                 x, y = self._furn_pos[hit]

@@ -568,6 +568,67 @@ def scratches_or_climbs(c, f, w, seen):
             seen.add("deck")
 
 
+def test_cat_climbs_the_post_with_its_own_pose():
+    """Am Pfeiler hoch wie am großen Baum: eigene Pose, oben steht sie auf der Liegefläche."""
+    w = world()
+    f = tree_at(w, 1300)
+    for seed in range(8):
+        c = cat_with(w, f)
+        c.rng = random.Random(seed)
+        c.cfg = tree_cfg(1)
+        if tree_run(c, f, w, 120, until=lambda c: c.state == "climb"):
+            assert c._wall.owner == "furniture:tree"
+            assert c.frame_key(0)[0] == "climb_post"
+            assert tree_run(c, f, w, 20, until=lambda c: c.platform is not None
+                            and c.platform.owner == "furniture:tree")
+            return
+    raise AssertionError("klettert nie am Pfeiler hoch")
+
+
+def test_scratching_frays_the_small_post():
+    w = world()
+    f = tree_at(w, 1300)
+    c = cat_with(w, f)
+    c.cfg = tree_cfg(1)
+    c.cfg.set("sisal_scratches", 2)
+    assert f.tree_frame() == "tree" and not f.frayed("tree")
+    assert tree_run(c, f, w, 300, until=lambda c: c.state == "scratch")
+    assert f.tree_wear > 0 and f.frayed("tree")
+    assert f.tree_frame() in ("tree_wear1", "tree_wear2", "tree_wear3")
+    f.new_sisal("tree")
+    assert f.tree_frame() == "tree" and not f.frayed("tree")
+
+
+def test_wear_of_the_small_tree_survives_a_restart(tmp_path):
+    w = world()
+    f = tree_at(w, 1300)
+    f.scratch("tree", 0, 0.5)
+    path = tmp_path / "furniture.json"
+    storage.save(path, f)
+    assert storage.load_furniture(path).tree_wear == 0.5
+
+
+def test_her_ball_hangs_within_reach_of_the_floor():
+    """Der Ball soll in Pfotenhöhe über dem Boden baumeln (bigtree.TOY_REACH)."""
+    from taskbar_cat import bigtree
+    from taskbar_cat.furniture import FRAME_H, TREE_TOY
+    _, y, n, _ = TREE_TOY
+    assert bigtree.TOY_REACH[0] <= FRAME_H["tree"] - (y + n + 3) <= bigtree.TOY_REACH[1]
+
+
+def test_cat_bats_the_ball_of_the_small_tree():
+    w = world()
+    f = tree_at(w, 1300)
+    c = cat_with(w, f)
+    c.cfg = tree_cfg(1)
+    c.cfg.set("p_toy", 1)
+    assert tree_run(c, f, w, 300, until=lambda c: c.state == "swat")
+    assert c._toy == ("tree", 0)
+    tree_run(c, f, w, 0.3)
+    assert f.toy_angle("tree", 0) != 0          # es pendelt
+    assert abs(c.x - f.toy_x("tree", 0, w, SPRITE)) < SPRITE   # sie steht darunter
+
+
 def test_cat_rides_tree_and_falls_when_stored():
     w = world()
     f = tree_at(w, 1300)

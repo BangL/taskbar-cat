@@ -72,6 +72,7 @@ taskbar_cat/
   bus.py                     D-Bus-Service, Sensor-Watchdog, ScreenSaver-Signal
   world.py                   Weltmodell: Plattformen aus Fenstern + Arbeitsflächen (rein, kein Qt)
   bigtree.py                 Großer Kratzbaum: zufälliger Aufbau je Größe, Kanten und Kletterwände (rein, kein Qt)
+                             (Verschleiß des Sisals und die Bällchen nutzt auch der kleine, furniture.TREE_*)
   cat.py                     Bedürfnisse, Zustandsautomat, Physik (rein, kein Qt)
   storage.py                 state.json laden/speichern
   sprites.py                 Pixel-Art prozedural erzeugen -> Spritesheet-PNG

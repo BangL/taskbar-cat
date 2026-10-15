@@ -48,6 +48,12 @@ def is_tree(kind) -> bool:
     return isinstance(kind, str) and kind.startswith(KIND) and (kind == KIND or kind[len(KIND):].isdigit())
 
 
+def wear_level(v: float) -> int:
+    """Sichtbare Stufe (0 = wie neu) zu einem Verschleiß 0..1. Schon der erste Kratzer ist
+    zu sehen, ganz zerfranst ist die höchste Stufe."""
+    return min(WEAR_LEVELS, math.ceil(round(max(0.0, v) * WEAR_LEVELS, 6)))
+
+
 def clamp_size(w: float, h: float) -> tuple[float, float]:
     return min(max(w, MIN_W), MAX_W), min(max(h, MIN_H), MAX_H)
 
@@ -214,6 +220,7 @@ class Tree:
     seed: int = 0
     hanging: bool = False
     top: float = 0.0           # hängend: Oberkante (global)
+    locked: bool = False       # festgestellt: weder Mausrad noch Ziehen verstellen ihn
     wear: list = field(default_factory=list)   # je Pfeiler 0..1: so zerkratzt ist der Sisal
 
     def size(self) -> tuple[int, int]:
@@ -225,14 +232,19 @@ class Tree:
     def layout(self) -> Layout:
         return layout(self.w, self.h, self.hanging, self.seed)
 
-    def wheeled(self, dx: float, dy: float) -> tuple[float, float]:
-        """Neue Größe nach dem Mausrad: hoch/runter = Höhe, seitlich = Breite."""
+    def wheeled(self, dx: float, dy: float, ctrl: bool = False) -> tuple[float, float]:
+        """Neue Größe nach dem Mausrad: hoch/runter = Höhe, seitlich = Breite. Mit Strg
+        zählt hoch/runter zur Breite - nicht jede Maus kann seitlich scrollen."""
+        if ctrl:
+            dx, dy = dx + dy, 0
         return self.w * WHEEL_STEP ** (dx / 120), self.h * WHEEL_STEP ** (dy / 120)
 
     def to_dict(self) -> dict:
         d = {"size": [round(self.w, 2), round(self.h, 2)], "seed": self.seed}
         if self.hanging:
             d["hang_top"] = self.top
+        if self.locked:
+            d["locked"] = True
         if any(self.wear):
             d["wear"] = [round(v, 4) for v in self.wear]
         return d
@@ -248,6 +260,7 @@ class Tree:
         top = d.get("hang_top")
         if isinstance(top, (int, float)) and not isinstance(top, bool):
             t.hanging, t.top = True, float(top)
+        t.locked = d.get("locked") is True
         wear = d.get("wear")
         if isinstance(wear, list):
             t.wear = [max(0.0, min(1.0, float(v))) if isinstance(v, (int, float)) else 0.0 for v in wear]
@@ -259,9 +272,8 @@ class Tree:
         self.wear[post] = min(1.0, self.wear[post] + amount)
 
     def wear_levels(self) -> str:
-        """Sichtbare Stufe je Pfeiler als Ziffern ("" = nirgends zerkratzt); fürs Bild.
-        Schon der erste Kratzer ist zu sehen, ganz zerfranst ist die höchste Stufe."""
-        levels = "".join(str(min(WEAR_LEVELS, math.ceil(round(v * WEAR_LEVELS, 6)))) for v in self.wear)
+        """Sichtbare Stufe je Pfeiler als Ziffern ("" = nirgends zerkratzt); fürs Bild."""
+        levels = "".join(str(wear_level(v)) for v in self.wear)
         return levels.rstrip("0")
 
     def variant(self, name: str) -> dict:

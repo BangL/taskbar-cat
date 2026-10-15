@@ -8,18 +8,27 @@ import random
 
 from . import bigtree
 from .bigtree import Tree, is_tree
-from .world import GRAVITY, Platform, Rect, Win, World
+from .world import GRAVITY, Platform, Rect, Wall, Win, World
 
 KINDS = ("bed", "bowl", "yarn", "tree", bigtree.KIND)
 NAMES = {"bed": "Katzenbett", "bowl": "Napf", "yarn": "Wollknäuel", "tree": "Kratzbaum",
          bigtree.KIND: bigtree.NAME}
+# Kleiner Kratzbaum: ein Frame je Verschleißstufe des Sisals (siehe bigtree.wear_level)
+TREE_FRAMES = ("tree",) + tuple(f"tree_wear{n}" for n in range(1, bigtree.WEAR_LEVELS + 1))
 # Frame-Höhe in Pixeln, wenn nicht 32 (Breite ist immer 32)
-FRAME_H = {"tree": 64}
+FRAME_H = {name: 64 for name in TREE_FRAMES}
 # Sichtbarer Teil im Frame (x, y, w, h): Mausfläche und Abstand zum Bildschirmrand
 BOX = {"bed": (1, 21, 30, 11), "bowl": (11, 25, 10, 7), "yarn": (11, 22, 10, 10),
        "tree": (3, 8, 26, 55)}
-# Liegefläche oben auf dem Kratzbaum (x, y, w, h im Frame); wird zur begehbaren Kante
-TREE_DECK = (3, 8, 26, 5)
+# Liegefläche oben auf dem Kratzbaum (x, y, w, h im Frame); wird zur begehbaren Kante.
+# So dick wie ein Brett des großen Baums, damit beide gleich gezeichnet werden.
+TREE_DECK = (3, 8, 26, bigtree.BOARD_H)
+# Sisalpfeiler (x-Mitte, oben, unten im Frame): daran klettert und kratzt sie,
+# so breit wie der eines großen Baums
+TREE_POST = (16, TREE_DECK[1] + TREE_DECK[3], 57)
+# Bällchen an der Liegefläche (x, Aufhängung, Fadenlänge, Farbe wie bigtree): hängt bis in
+# Pfotenhöhe über dem Boden, damit sie es von dort anspielen kann (TOY_REACH)
+TREE_TOY = (25, TREE_POST[1], 28, 0)
 TREE_ID = "furniture:tree"
 TREE_STACK = 1 << 30   # liegt im Overlay über allen Fenstern
 BOUNCY = ("yarn",)     # hüpft, rollt und lässt sich werfen; der Rest wird abgesetzt
@@ -51,6 +60,12 @@ def fly_path(t: float, i: int) -> tuple[float, float, bool]:
     dx = 6 * math.sin(a * t + ph) + 2 * math.sin(3.7 * b * t)
     dy = -7 - 3 * math.sin(b * t + 2 * ph) - 1.5 * math.cos(5.3 * a * t)
     return dx, dy, int(t * 24 + i) % 2 == 0
+
+
+def on_tree(owner: str) -> bool:
+    """Gehört die Kante (oder Wand) zu einem Kratzbaum - der Liegefläche des kleinen
+    oder einer Fläche bzw. einem Pfeiler eines großen?"""
+    return owner == TREE_ID or owner.startswith(bigtree.BOARD_ID)
 
 
 def half_width(kind: str, sprite: float) -> float:
@@ -225,6 +240,7 @@ class Furniture:
         self.bodies = {k: Body(k in BOUNCY) for k in KINDS}
         # große Kratzbäume: "bigtree" bleibt entfernt als Vorlage liegen, weitere ("bigtree2" ...) kommen dazu
         self.trees: dict[str, Tree] = {bigtree.KIND: Tree()}
+        self.tree_wear = 0.0   # kleiner Kratzbaum: 0..1, so zerkratzt ist sein Sisal
         self.food = 0   # Portionen im Napf
         # Von der Katze heruntergeschubst: liegt umgedreht, das Futter daneben, bis man ihn
         # mit der Maus wieder aufhebt
@@ -286,7 +302,10 @@ class Furniture:
         return self.bodies[kind].platform
 
     def put(self, kind: str, world: World, x: float, y: float, half: float) -> bool:
-        """Mit der Maus halten (Mitte unten bei x, y), bis release es loslässt."""
+        """Mit der Maus halten (Mitte unten bei x, y), bis release es loslässt;
+        ein festgestellter großer Kratzbaum bleibt stehen."""
+        if self.locked(kind):
+            return False
         self.bodies[kind].hold(x, y)
         if kind == "bowl":
             self._right_bowl()   # aufgehoben: wieder richtig herum, das Verschüttete ist weg
@@ -368,6 +387,22 @@ class Furniture:
             self.fly_ids.pop(0)
             self.flies_eaten += 1
 
+    def toys_of(self, kind: str) -> tuple:
+        """Bällchen eines Kratzbaums als (x, Aufhängung, Fadenlänge, Farbe) im Frame bzw.
+        im Aufbau des großen Baums."""
+        if kind in self.trees:
+            return self.trees[kind].layout().toys
+        return (TREE_TOY,) if kind == "tree" else ()
+
+    def toy_x(self, kind: str, toy: int, world: World, sprite: float) -> float | None:
+        """Wo das Bällchen hängt (global, Fadenmitte); None, wenn Baum oder Bällchen weg sind."""
+        pos = self.usable(kind, world)
+        toys = self.toys_of(kind) if pos is not None else ()
+        if toy >= len(toys):
+            return None
+        left = pos[0] - (self.trees[kind].layout().w if kind in self.trees else 32) / 2 * sprite / 32
+        return left + (toys[toy][0] + 0.5) * sprite / 32
+
     def bat_toy(self, kind: str, toy: int, direction: int) -> None:
         """Mit der Pfote nach einem Bällchen schlagen: es pendelt in diese Richtung."""
         swing = self.toy_swing.setdefault((kind, toy), [0.0, 0.0])
@@ -379,8 +414,7 @@ class Furniture:
 
     def _swing_toys(self, dt: float, sprite: float) -> None:
         for key, swing in list(self.toy_swing.items()):
-            tree = self.trees.get(key[0])
-            toys = tree.layout().toys if tree is not None else ()
+            toys = self.toys_of(key[0])
             if key[1] >= len(toys):                 # Baum weg oder neu gewürfelt
                 del self.toy_swing[key]
                 continue
@@ -427,6 +461,38 @@ class Furniture:
             self.apply_variant(kind, variant)
         return kind
 
+    def scratch(self, kind: str, post: int, amount: float) -> None:
+        """Einmal am Pfeiler gekratzt; der kleine Kratzbaum hat nur einen."""
+        if kind in self.trees:
+            self.trees[kind].scratch(post, amount)
+        elif kind == "tree":
+            self.tree_wear = min(1.0, self.tree_wear + amount)
+
+    def new_sisal(self, kind: str) -> None:
+        """Kratzspuren weg: alle Pfeiler wie neu."""
+        if kind in self.trees:
+            self.trees[kind].wear = []
+        elif kind == "tree":
+            self.tree_wear = 0.0
+
+    def frayed(self, kind: str) -> bool:
+        """Ist überhaupt etwas zu sehen (für "Neuen Sisal" im Menü)?"""
+        return bool(self.trees[kind].wear_levels()) if kind in self.trees \
+            else bigtree.wear_level(self.tree_wear) > 0
+
+    def tree_frame(self) -> str:
+        """Frame des kleinen Kratzbaums, je nachdem wie zerfranst sein Sisal ist."""
+        level = bigtree.wear_level(self.tree_wear)
+        return TREE_FRAMES[level]
+
+    def locked(self, kind: str) -> bool:
+        return kind in self.trees and self.trees[kind].locked
+
+    def set_locked(self, kind: str, on: bool) -> None:
+        """Festgestellt lässt er sich weder mit dem Mausrad verstellen noch verschieben."""
+        if kind in self.trees:
+            self.trees[kind].locked = on
+
     def remove_tree(self, kind: str) -> None:
         """Der erste wird nur weggeräumt (kommt beim nächsten wieder), weitere verschwinden ganz."""
         if kind == bigtree.KIND:
@@ -436,8 +502,10 @@ class Furniture:
             self.trees.pop(kind, None)
 
     def resize_tree(self, kind: str, w: float, h: float) -> None:
-        """Stehend bleibt der Fuß, hängend die Oberkante, wo sie ist."""
+        """Stehend bleibt der Fuß, hängend die Oberkante, wo sie ist; gesperrt gar nichts."""
         t = self.trees[kind]
+        if t.locked:
+            return
         t.resize(w, h)
         if t.hanging:
             self._hang(kind, t.top)
@@ -526,10 +594,21 @@ class Furniture:
         if self._world_cache is None or self._world_cache[0] != key:
             s = sprite / 32
             x, y, w, h = TREE_DECK
-            deck = Rect(pos[0] - 16 * s + x * s, pos[1] - FRAME_H["tree"] * s + y * s, w * s, h * s)
+            left, top = pos[0] - 16 * s, pos[1] - FRAME_H["tree"] * s
+            deck = Rect(left + x * s, top + y * s, w * s, h * s)
             win = Win(TREE_ID, deck, TREE_STACK, False, False)
-            self._world_cache = (key, World(world.outputs, world.windows + [win], world.blocked))
+            out = World(world.outputs, world.windows + [win], world.blocked)
+            out.walls.extend(self._post_walls(left, top, s))
+            self._world_cache = (key, out)
         return self._world_cache[1]
+
+    @staticmethod
+    def _post_walls(left: float, top: float, s: float) -> list[Wall]:
+        """Beide Seiten des Sisalpfeilers, wie beim großen Kratzbaum: oben angekommen zieht
+        sie sich auf die Liegefläche (TREE_ID). Reicht von deren Oberkante bis zum Sockel."""
+        px, _, y2 = TREE_POST
+        return [Wall(left + (px - side * bigtree.POST_W / 2) * s, top + TREE_DECK[1] * s,
+                     top + y2 * s, TREE_ID, -side) for side in (-1, 1)]
 
     def tick(self, world: World, dt: float, sprite: float) -> None:
         base = self._without_trees(world)
@@ -569,7 +648,7 @@ class Furniture:
 
     def to_dict(self) -> dict:
         d: dict = {"food": self.food, "bowl_tipped": self.tipped, "spill": self.spill,
-                   "spill_side": self.spill_side}
+                   "spill_side": self.spill_side, "tree_wear": round(self.tree_wear, 4)}
         for k, b in self.bodies.items():
             if not b.placed:
                 d[k] = None
@@ -617,6 +696,7 @@ class Furniture:
             f.food = max(0, min(BOWL_PORTIONS, int(d.get("food", 0))))
             f.spill = max(0, min(BOWL_PORTIONS, int(d.get("spill", 0))))
             f.spill_side = -1 if d.get("spill_side", 1) == -1 else 1
+            f.tree_wear = max(0.0, min(1.0, float(d.get("tree_wear", 0.0))))
         except (TypeError, ValueError):
             pass
         f.tipped = d.get("bowl_tipped") is True and f.bodies["bowl"].placed

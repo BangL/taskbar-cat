@@ -11,7 +11,7 @@ from PyQt6.QtCore import QPointF, QRectF, Qt
 from PyQt6.QtGui import QColor, QImage, QLinearGradient, QPainter, QPainterPath, QPen, QPolygonF
 
 from . import bigtree
-from .furniture import FRAME_H
+from .furniture import FRAME_H, TREE_DECK, TREE_FRAMES, TREE_POST
 
 ATLAS_VERSION = 12
 UFO_VERSION = 1
@@ -604,7 +604,7 @@ def ensure_atlas(cache_dir: Path, fur: QColor | str = FUR_DEFAULT,
 
 # Bett in zwei Ebenen: die Katze liegt zwischen Rückwand und vorderem Rand
 FURNITURE_FRAMES = ("bed_back", "bed_front", "bowl_0", "bowl_1", "bowl_2", "bowl_3", "yarn", "yarn_roll",
-                    "tree", "bowl_tipped", "spill_1", "spill_2", "spill_3")
+                    "bowl_tipped", "spill_1", "spill_2", "spill_3") + TREE_FRAMES
 FURNITURE_ROWS = max(FRAME_H.values()) // FRAME   # Atlas-Höhe in Frames; kleine stehen unten
 BOWL_LEVELS = 3   # Frames bowl_0 .. bowl_3, je Portion im Napf eins; spill_1 .. spill_3 verschüttet
 # Frames fürs Inventarbild, übereinander gezeichnet
@@ -638,18 +638,21 @@ def _yarn(c: _Pen, roll: int):
     c.rect(13, 26 + roll, 6, 1, YARN_DARK)
 
 
-def _tree(c: _Pen):
-    """Kratzbaum 32x64: Teppichsockel, Sisalpfosten, Liegefläche, baumelnder Ball.
-    Die Liegefläche muss zu furniture.TREE_DECK passen."""
-    c.rect(4, 57, 24, 6, CARPET)
-    c.rect(4, 57, 24, 1, CARPET_DARK)
-    c.rect(13, 13, 6, 44, SISAL)
-    for y in range(15, 56, 3):
-        c.rect(13, y, 6, 1, SISAL_DARK)
-    c.rect(3, 8, 26, 5, CARPET)
-    c.rect(3, 12, 26, 1, CARPET_DARK)
-    c.rect(25, 13, 1, 7, SISAL_DARK)
-    c.ell(25.5, 22, 2, 2, YARN)
+def _tree(c: _Pen, wear: int = 0):
+    """Kratzbaum 32x64: Teppichsockel, Sisalpfosten und Liegefläche mit Rand (wie die
+    Liegeflächen der großen, _bigboard). wear: Stufe der Kratzspuren am Pfeiler.
+    Liegefläche und Pfeiler müssen zu furniture.TREE_DECK bzw. TREE_POST passen;
+    das Bällchen zeichnet das Overlay, damit es pendelt."""
+    px, y1, y2 = TREE_POST
+    half = bigtree.POST_W // 2
+    c.rect(4, y2, 24, 6, CARPET)
+    c.rect(4, y2, 24, 1, CARPET_DARK)
+    c.rect(px - half, y1, bigtree.POST_W, y2 - y1, SISAL)
+    for y in range(y1 + 2, y2 - 1, 3):
+        c.rect(px - half, y, bigtree.POST_W, 1, SISAL_DARK)
+    if wear:
+        _fray(c.p, px, y1, y2, wear, 0)
+    _bigboard(c.p, *TREE_DECK[:3], top=True)
 
 
 def render_furniture() -> QImage:
@@ -657,7 +660,8 @@ def render_furniture() -> QImage:
     img.fill(Qt.GlobalColor.transparent)
     draw = {"bed_back": _bed_back, "bed_front": _bed_front,
             **{f"bowl_{n}": lambda c, n=n: _bowl(c, 12, n) for n in range(BOWL_LEVELS + 1)},
-            "yarn": lambda c: _yarn(c, 0), "yarn_roll": lambda c: _yarn(c, 1), "tree": _tree,
+            "yarn": lambda c: _yarn(c, 0), "yarn_roll": lambda c: _yarn(c, 1),
+            **{name: lambda c, n=n: _tree(c, n) for n, name in enumerate(TREE_FRAMES)},
             "bowl_tipped": _bowl_tipped, **{f"spill_{n}": lambda c, n=n: _spill(c, n) for n in (1, 2, 3)}}
     for name in FURNITURE_FRAMES:
         x0, y0 = furniture_origin(name)
@@ -695,6 +699,17 @@ def _outline_all(img: QImage, color: QColor) -> None:
         for nx, ny in ((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)):
             if 0 <= nx < w and 0 <= ny < h and (nx, ny) not in solid:
                 img.setPixel(nx, ny, rgb)
+
+
+def _bigboard(p: QPainter, x: int, y: int, w: int, top: bool = False) -> None:
+    """Brett (Teppich mit dunkler Unterkante); als Liegefläche mit Rand und Mulde:
+    die Katze liegt zwischen den Wülsten links und rechts."""
+    p.fillRect(x, y, w, bigtree.BOARD_H, CARPET)
+    p.fillRect(x, y + bigtree.BOARD_H - 1, w, 1, CARPET_DARK)
+    if top:
+        p.fillRect(x, y - 2, 2, 2, BED)
+        p.fillRect(x + w - 2, y - 2, 2, 2, BED)
+        p.fillRect(x + 2, y, w - 4, 1, CUSHION)
 
 
 def _fray(p: QPainter, x: int, y1: int, y2: int, level: int, post: int) -> None:
@@ -763,12 +778,7 @@ def render_bigtree(w: float, h: float, hanging: bool = False, seed: int = 0,
             p.drawEllipse(b.x1 + (bw - d) // 2, b.y + 4, d, d)
             p.fillRect(b.x1 + (bw - d) // 2, b.y + 4 + d // 2, d, b.sag - 4 - d // 2, CAVE_HOLE)
         else:
-            p.fillRect(b.x1, b.y, bw, bigtree.BOARD_H, CARPET)
-            p.fillRect(b.x1, b.y + bigtree.BOARD_H - 1, bw, 1, CARPET_DARK)
-            if b.style == "top":                 # Liegemulde mit Rand
-                p.fillRect(b.x1, b.y - 2, 2, 2, BED)
-                p.fillRect(b.x2 - 2, b.y - 2, 2, 2, BED)
-                p.fillRect(b.x1 + 2, b.y, bw - 4, 1, CUSHION)
+            _bigboard(p, b.x1, b.y, bw, b.style == "top")
     p.fillRect(1, lay.base_y, lay.w - 2, bigtree.BASE_H, CARPET)
     p.fillRect(1, lay.base_y + (bigtree.BASE_H - 1 if lay.hanging else 0), lay.w - 2, 1, CARPET_DARK)
     p.end()

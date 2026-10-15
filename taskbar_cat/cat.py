@@ -6,7 +6,7 @@ import random
 from . import ufo
 from .bigtree import BASE_KEY, BOARD_ID, DOOR_W, cave_of, in_hammock, is_tree, reachable_toys
 from .config import Config
-from .furniture import ROLL_FRICTION, TREE_ID, Furniture
+from .furniture import ROLL_FRICTION, TREE_ID, Furniture, on_tree
 from .needs import Mood, Needs
 from .world import GRAVITY, Ceiling, Platform, Rect, Wall, World
 
@@ -307,8 +307,8 @@ class Cat:
             anim = "swipe"
         elif self.state == "seek" and self._waiting:
             anim = "sit"
-        elif self.state == "climb" and self._wall is not None and self._wall.owner.startswith(BOARD_ID):
-            anim = "climb_post"   # umgreift den Pfeiler des großen Kratzbaums
+        elif self.state == "climb" and self._wall is not None and on_tree(self._wall.owner):
+            anim = "climb_post"   # umgreift den Pfeiler eines Kratzbaums
         elif self.hammock() is not None:
             anim = "hammock_sleep" if self.state == "sleep" else "hammock"
             frame = int(t * HAMMOCK_SWAY_FPS)
@@ -765,7 +765,7 @@ class Cat:
         w = self._wall
         inside = w.x - w.side * 30
         p = world.platform_by_owner_at(w.owner, inside)
-        if p is None and w.owner.startswith(BOARD_ID):   # schmale Fläche am Pfeiler: so weit es geht
+        if p is None and on_tree(w.owner):   # schmale Fläche am Pfeiler: so weit es geht
             p = next((q for q in world.platforms if q.owner == w.owner and abs(q.y - w.y1) <= 2), None)
             if p is not None:
                 inside = min(max(inside, p.x1), p.x2)
@@ -955,6 +955,29 @@ class Cat:
                 return x, q
         return None
 
+    def _use_tree(self, world: World, bx: float) -> None:
+        """Am kleinen Kratzbaum angekommen: nach dem Bällchen schlagen, am Pfeiler kratzen
+        oder hinauf (klettern, sonst springen) - dieselbe Auswahl wie am großen."""
+        if self.furniture.toy_x("tree", 0, world, self.sprite) is not None \
+                and self.rng.random() < self.cfg.p_toy:
+            self._toy = ("tree", 0)
+            self._swats_left = self.rng.randint(*TOY_SWATS)
+            self._set("to_toy", math.inf)
+            return
+        if self.rng.random() < self.cfg.p_scratch:
+            self._set("scratch", self.rng.uniform(2.5, 5))
+            self.furniture.scratch("tree", 0, 1 / self.cfg.sisal_scratches)
+            return
+        walls = [w for w in world.walls_near(self.platform, self.x, CLIMB_OFFSET) if w.owner == TREE_ID]
+        if walls and self.rng.random() < 0.5:
+            self.start_climb(world, self.rng.choice(walls))
+            return
+        deck = next((p for p in world.platforms if p.owner == TREE_ID), None)
+        if deck is not None:
+            self._jump_to(deck, bx)   # hinauf auf die Liegefläche
+        else:
+            self._set("scratch", self.rng.uniform(2.5, 5))
+
     def _toys_here(self, world: World) -> list[tuple[str, int]]:
         """Bällchen, die über ihrer Fläche des großen Kratzbaums in Pfotenhöhe hängen."""
         owner = self.platform.owner if self.platform is not None else ""
@@ -967,14 +990,7 @@ class Cat:
 
     def _toy_x(self, world: World) -> float | None:
         """Wo das Bällchen hängt (global, Fadenmitte); None, wenn Baum oder Bällchen weg sind."""
-        kind, i = self._toy
-        pos = self.furniture.usable(kind, world) if kind in self.furniture.trees else None
-        if pos is None:
-            return None
-        lay = self.furniture.trees[kind].layout()
-        if i >= len(lay.toys):
-            return None
-        return pos[0] + (lay.toys[i][0] + 0.5 - lay.w / 2) * self.sprite / 32
+        return self.furniture.toy_x(*self._toy, world, self.sprite)
 
     def _to_toy(self, dt: float, world: World) -> None:
         """Unter das Bällchen laufen (von der Seite, auf der sie ist) und losschlagen."""
@@ -1078,14 +1094,14 @@ class Cat:
         p = self.platform
         if p is None:
             return None
-        on = p.owner.startswith(BOARD_ID)
+        on = on_tree(p.owner)
 
         def under(q: Platform) -> bool:
             return q.x1 - 8 <= cx <= q.x2 + 8 and 0 <= q.y - cy <= TREE_CHASE_UP
         if under(p):
             return None
         cands = [q for q in self._jump_targets(world, p)
-                 if q != p and under(q) and (q.owner.startswith(BOARD_ID) or (on and q.is_floor))]
+                 if q != p and under(q) and (on_tree(q.owner) or (on and q.is_floor))]
         return min(cands, key=lambda q: q.y - cy, default=None)
 
     def _bowl_edge(self, world: World) -> int:
@@ -1300,13 +1316,9 @@ class Cat:
         if is_tree(kind):
             self._set("scratch", self.rng.uniform(2.5, 5))
             if self._post is not None and self._post[0] == kind:   # jedes Mal franst der Sisal etwas mehr aus
-                self.furniture.trees[kind].scratch(self._post[1], 1 / self.cfg.sisal_scratches)
+                self.furniture.scratch(kind, self._post[1], 1 / self.cfg.sisal_scratches)
         elif kind == "tree":
-            deck = next((p for p in world.platforms if p.owner == TREE_ID), None)
-            if deck is not None and self.rng.random() >= self.cfg.p_scratch:
-                self._jump_to(deck, bx)   # hinauf auf die Liegefläche
-            else:
-                self._set("scratch", self.rng.uniform(2.5, 5))
+            self._use_tree(world, bx)
         elif kind == "yarn":
             self._bats_left -= 1
             self.furniture.kick(self.facing * self.rng.uniform(*YARN_KICK))

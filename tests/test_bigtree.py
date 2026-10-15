@@ -3,13 +3,14 @@ import random
 
 import pytest
 
-from taskbar_cat import bigtree, storage
+from taskbar_cat import bigtree, sprites, storage
 from taskbar_cat.bigtree import BOARD_ID, KIND, Tree, layout
 from taskbar_cat import cat as cat_mod
 from taskbar_cat.cat import SPRITE, Cat
 from taskbar_cat.config import Config
 from taskbar_cat.furniture import Furniture
 from taskbar_cat.needs import Needs
+from PyQt6.QtCore import Qt
 
 from test_furniture import DT, settle, world
 
@@ -724,6 +725,84 @@ def test_overlay_draws_swinging_toys(overlay):
     om.render(c, f.world_with(w, c.sprite), 0, f)
     assert ov.scene.property("toyAngles")[0] > 0
     assert "wear=3" in ov.scene.property("bigtrees")[0]["src"]
+
+
+def test_ctrl_wheel_changes_the_width():
+    """Nicht jede Maus kann seitlich scrollen: mit Strg zählt hoch/runter zur Breite."""
+    t = Tree(48, 100)
+    assert t.wheeled(0, 120) == (48, pytest.approx(100 * bigtree.WHEEL_STEP))
+    assert t.wheeled(0, 120, ctrl=True) == (pytest.approx(48 * bigtree.WHEEL_STEP), 100)
+    assert t.wheeled(120, 0, ctrl=True) == t.wheeled(120, 0)
+
+
+def test_locked_tree_keeps_its_size_and_place():
+    w, f = toy_tree()
+    before = f.trees[KIND].size()
+    x = f.bodies[KIND].x
+    f.set_locked(KIND, True)
+    assert f.locked(KIND)
+    f.resize_tree(KIND, 120, 300)
+    assert not f.put(KIND, w, x + 500, 200, 20)
+    assert f.trees[KIND].size() == before and f.bodies[KIND].x == x
+    f.set_locked(KIND, False)
+    f.resize_tree(KIND, 120, 300)
+    assert f.trees[KIND].size() == (120, 300)
+
+
+def test_lock_survives_a_restart(tmp_path):
+    w, f = toy_tree()
+    f.set_locked(KIND, True)
+    path = tmp_path / "furniture.json"
+    storage.save(path, f)
+    assert storage.load_furniture(path).locked(KIND)
+
+
+def test_overlay_does_not_drag_a_locked_tree(overlay):
+    from taskbar_cat.world import Output, Rect, World
+    om, ov = overlay
+    g = ov.screen.geometry()
+    w = World([Output("x", Rect(0, 0, g.width(), g.height()), Rect(0, 0, g.width(), g.height()))], [])
+    f = Furniture()
+    f.add_tree(g.width() / 2, 100)
+    settle(f, w)
+    c = Cat(Needs(), random.Random(0))
+    c.furniture = f
+    c.spawn(w)
+    c.x = 20                                  # nicht vor dem Baum: sie geht sonst vor
+    f.set_locked(KIND, True)
+    om.render(c, f.world_with(w, c.sprite), 0, f)
+    moved = []
+    om.furnitureMoved.connect(lambda *a: moved.append(a))
+    x, y = f.usable(KIND, w)
+    om._pressed(ov, x - ov.origin.x(), y - 10 - ov.origin.y(), Qt.MouseButton.LeftButton.value)
+    om._moved(ov, x - ov.origin.x() + 100, y - ov.origin.y(), Qt.MouseButton.LeftButton.value)
+    assert om._grabbed is None and moved == []
+
+
+def test_overlay_draws_the_small_tree_with_its_ball(overlay):
+    """Der kleine Kratzbaum: Bällchen wie am großen, Frame nach Verschleiß."""
+    from taskbar_cat.furniture import TREE_TOY
+    from taskbar_cat.world import Output, Rect, World
+    om, ov = overlay
+    g = ov.screen.geometry()
+    w = World([Output("x", Rect(0, 0, g.width(), g.height()), Rect(0, 0, g.width(), g.height()))], [])
+    f = Furniture()
+    f.place("tree", w, g.width() / 2, 100, 20)
+    settle(f, w)
+    c = Cat(Needs(), random.Random(0))
+    c.furniture = f
+    c.spawn(w)
+    om.render(c, f.world_with(w, c.sprite), 0, f)
+    toys = ov.scene.property("bigtreeToys")
+    assert len(toys) == 1
+    assert toys[0]["len"] == TREE_TOY[2] * c.sprite / 32
+    assert toys[0]["x"] == f.toy_x("tree", 0, w, c.sprite) - ov.origin.x()
+    back = ov.scene.property("furnitureBack")
+    assert [b["sx"] for b in back] == [sprites.furniture_origin("tree")[0]]
+    f.scratch("tree", 0, 1.0)
+    om.render(c, f.world_with(w, c.sprite), 0, f)
+    assert [b["sx"] for b in ov.scene.property("furnitureBack")] == \
+        [sprites.furniture_origin("tree_wear3")[0]]
 
 
 @pytest.mark.parametrize("name, state", [("p_scratch", "scratch"), ("p_cave", "cave_in"), ("p_toy", "swat")])

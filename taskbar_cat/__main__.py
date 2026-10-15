@@ -191,18 +191,28 @@ def main(argv: list[str] | None = None) -> int:
         furniture.remove_tree(kind)
         furniture_changed()
 
-    def bigtree_wheel(kind: str, dx: float, dy: float) -> None:
+    def bigtree_wheel(kind: str, dx: float, dy: float, ctrl: bool) -> None:
         tree = furniture.trees.get(kind)
         if tree is not None:
-            furniture.resize_tree(kind, *tree.wheeled(dx, dy))
+            furniture.resize_tree(kind, *tree.wheeled(dx, dy, ctrl))
             furniture_changed()
 
     def new_sisal(kind: str) -> None:
         """Kratzspuren weg: alle Pfeiler wie neu."""
-        furniture.trees[kind].wear = []
+        furniture.new_sisal(kind)
+        furniture_changed()
+
+    def toggle_lock(kind: str, on: bool) -> None:
+        furniture.set_locked(kind, on)
         furniture_changed()
 
     furniture_menu = QMenu()
+
+    def sisal(kind: str) -> None:
+        """Eintrag "Neuen Sisal", nur solange etwas zu sehen ist."""
+        furniture_menu.addAction("Neuen Sisal", guarded(lambda: new_sisal(kind))).setEnabled(
+            furniture.frayed(kind))
+
     def show_furniture_menu(kind: str, pos) -> None:
         furniture_menu.clear()
         if is_tree(kind):
@@ -212,8 +222,12 @@ def main(argv: list[str] | None = None) -> int:
             for v in storage.load_variants(variants_file):
                 sub.addAction(v["name"], guarded(lambda _c=False, v=v: apply_variant(kind, v)))
             sub.setEnabled(bool(sub.actions()))
-            furniture_menu.addAction("Neuen Sisal", guarded(lambda: new_sisal(kind))).setEnabled(
-                bool(furniture.trees[kind].wear_levels()))
+            sisal(kind)
+            lock = furniture_menu.addAction("Festgestellt",
+                                            guarded(lambda on: toggle_lock(kind, on)))
+            lock.setCheckable(True)
+            lock.setChecked(furniture.locked(kind))
+            lock.setToolTip("Mausrad und Ziehen verstellen ihn nicht mehr")
             furniture_menu.addSeparator()
             b = furniture.bodies[kind]
             furniture_menu.addAction("Weiteren Kratzbaum aufstellen", guarded(
@@ -221,6 +235,9 @@ def main(argv: list[str] | None = None) -> int:
             furniture_menu.addAction("Entfernen", guarded(lambda: remove_bigtree(kind)))
             furniture_menu.popup(pos)
             return
+        if kind == "tree":
+            sisal(kind)
+            furniture_menu.addSeparator()
         if kind == "bowl":   # wie Linksklick aufs Tray-Icon; voll passt nichts mehr hinein
             full = not furniture.tipped and furniture.food >= BOWL_PORTIONS
             furniture_menu.addAction("Füttern (Napf voll)" if full else "Füttern",
