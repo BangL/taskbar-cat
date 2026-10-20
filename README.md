@@ -8,7 +8,7 @@ Backend-Wahl einmal beim Start über `XDG_CURRENT_DESKTOP`; erzwingen mit `TASKB
 
 | | KDE Plasma (und sway, Hyprland) | GNOME |
 |---|---|---|
-| Fenster | Layer-Shell, Overlay-Ebene | X11 über XWayland, immer oben |
+| Fenster | Layer-Shell, Top-Ebene | X11 über XWayland, immer oben |
 | Sensor | KWin-Script | GNOME-Shell-Extension |
 | Zusatzpaket | `layer-shell-qt` | keins |
 
