@@ -634,6 +634,20 @@ def test_batted_toy_swings_and_comes_to_rest():
     assert all(i < len(f.trees[KIND].layout().toys) for _, i in f.toy_swing)
 
 
+def test_toy_does_not_stick_at_the_stop():
+    """Gemeldet: mehrere Schläge an langem Faden - es blieb lange oben am Anschlag."""
+    from taskbar_cat.furniture import TOY_MAX
+    f = Furniture()
+    f.toys_of = lambda kind: ((0, 0, 28, 0),)
+    top = 0
+    for i in range(int(4 / DT)):
+        if i in (0, int(0.5 / DT), int(1 / DT)):
+            f.bat_toy("x", 0, -1)
+        f._swing_toys(DT, SPRITE)
+        top += abs(f.toy_angle("x", 0)) >= TOY_MAX - 1e-6
+    assert top * DT < 0.15
+
+
 def test_cat_bats_a_toy_from_the_board_below():
     w, f = toy_tree()
     ww = f.world_with(w, SPRITE)

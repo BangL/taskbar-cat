@@ -435,7 +435,10 @@ class Furniture:
             for _ in range(n):
                 h = dt / n
                 swing[1] += (-TOY_G / length * math.sin(swing[0]) - TOY_DAMP * swing[1]) * h
-                swing[0] = max(-TOY_MAX, min(TOY_MAX, swing[0] + swing[1] * h))
+                swing[0] += swing[1] * h
+                if abs(swing[0]) > TOY_MAX:   # am Anschlag umkehren statt dort festzukleben
+                    swing[0] = math.copysign(TOY_MAX, swing[0])
+                    swing[1] = 0.0
             if abs(swing[0]) < 0.01 and abs(swing[1]) < 0.05:
                 del self.toy_swing[key]
 
