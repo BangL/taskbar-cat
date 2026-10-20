@@ -451,6 +451,26 @@ def test_cat_does_not_hop_between_edges_at_the_same_height():
     assert jumps < 20                   # und haengt nicht im Dauersprung
 
 
+def test_cat_does_not_bounce_between_stacked_edges_above_the_yarn():
+    """Gemeldet: Knäuel unter versetzten Flächen (Kratzbaum) - der Sprung nach unten endete
+    auf der anderen Fläche, von dort wieder zurück, ohne Ende."""
+    w = world(Win("a", Rect(400, 700, 400, 380), 1, False, False),
+              Win("b", Rect(600, 740, 400, 340), 2, False, False))
+    f = standing(w, "yarn", 700, 1000)
+    c = cat_with(w, f, x=700)
+    c.cfg = play_cfg(1)
+    c._land(w, next(p for p in w.platforms if p.owner == "a"))
+    c._bats_left = 3
+    assert c._seek_yarn(w)
+    landed = []
+    for _ in range(int(10 / DT)):
+        was = c.platform
+        c.tick(DT, w, False)
+        if c.platform is not None and c.platform is not was:
+            landed.append(c.platform.owner)
+    assert "b" not in landed and landed[0] == "floor:DP-3"
+
+
 def test_cat_hugs_the_yarn_and_kicks_it_out_of_the_corner():
     """In der Ecke stupst sie es nicht weiter gegen die Wand, sondern umschlingt es und
     tritt es heraus - auch wenn das Umschlingen sonst selten wäre."""

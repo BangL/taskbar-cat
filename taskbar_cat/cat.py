@@ -126,6 +126,7 @@ class Cat:
         self._ride_rect: Rect | None = None
         self._floors_only = False
         self._ignore: Platform | None = None
+        self._aim: Platform | None = None   # Sprungziel: auf nichts Höherem aufkommen
         self._lazy_after_eat = False
         self._drag_idle = 0.0
         self._flee_s = 0.0
@@ -285,7 +286,7 @@ class Cat:
         self.state = "thrown"
         self.vx = max(-MAX_THROW, min(MAX_THROW, vx))
         self.vy = max(-MAX_THROW, min(MAX_THROW, vy))
-        self._ignore = None
+        self._ignore = self._aim = None
         self._floors_only = False
 
     def start_climb(self, world: World, wall: Wall) -> None:
@@ -459,7 +460,7 @@ class Cat:
         self.platform = None
         self.vx = self.vy = 0
         self._floors_only = floors_only
-        self._ignore = None
+        self._ignore = self._aim = None
         self._grab = None
 
     def _land(self, world: World, p: Platform) -> None:
@@ -467,7 +468,7 @@ class Cat:
         self.y = p.y
         self.vx = self.vy = 0
         self._floors_only = False
-        self._ignore = None
+        self._ignore = self._aim = None
         self._grab = None
         self._pounce = None
         self._ride_rect = None if p.is_floor else world.window_rect(p.owner)
@@ -549,6 +550,8 @@ class Cat:
                 continue
             if self._ignore is not None and _same_level(self._ignore, p):
                 continue
+            if self._aim is not None and p.y < self._aim.y - 2:
+                continue   # Kante über dem Ziel: sonst pendelt sie dazwischen hin und her
             if p.x1 <= self.x <= p.x2 and prev_y <= p.y <= self.y and (best is None or p.y < best.y):
                 best = p
         return best
@@ -772,7 +775,7 @@ class Cat:
 
     def _leap(self, grab: str, vx: float, vy: float) -> None:
         self._grab = grab
-        self._ignore = None
+        self._ignore = self._aim = None
         self.platform = None
         self.state = "jump"
         self.vx, self.vy = vx, vy
@@ -937,6 +940,7 @@ class Cat:
         vy0 = -math.sqrt(2 * GRAVITY * h)
         t = (-vy0 + math.sqrt(vy0 * vy0 + 2 * GRAVITY * dy)) / GRAVITY
         self._ignore = self.platform
+        self._aim = q
         self.platform = None
         self.state = "jump"
         self.vx = (tx - self.x) / t
