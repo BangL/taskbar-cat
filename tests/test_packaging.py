@@ -1,6 +1,9 @@
 """Paketierung: was im Baum liegt, muss auch im Wheel landen."""
-import tomllib
 from pathlib import Path
+
+import pytest
+
+tomllib = pytest.importorskip("tomllib")   # erst ab Python 3.11 (Ubuntu 22.04: 3.10)
 
 ROOT = Path(__file__).resolve().parent.parent
 PACKAGE = ROOT / "taskbar_cat"

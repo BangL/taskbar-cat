@@ -45,8 +45,8 @@ echo "installiert: $apps/$desktop"
 
 # Die Katze richtet die Erweiterung beim Start selbst ein; hier schon mitnehmen,
 # damit GNOME sie nach der nächsten Anmeldung kennt und keine zweite nötig wird.
-mkdir -p "$extension"
-cp "$src/taskbar_cat/gnome/extension.js" "$src/taskbar_cat/gnome/metadata.json" "$extension/"
+# Fassung je nach Shell-Version (vor GNOME 45 ohne ES-Module), siehe backend/gnome.py
+python3 -c 'from taskbar_cat.backend import gnome; gnome.GnomeBackend.install_extension(gnome.shell_version())'
 echo "GNOME-Sensor: $extension"
 
 if [ "${1:-}" = "--autostart" ]; then

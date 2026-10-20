@@ -38,6 +38,7 @@ Außerdem `--help`, `--version`. Installiert heißt der Befehl `taskbar-cat`.
 - Debian 13 / Ubuntu 24.10+: `.deb` aus den [Releases](https://github.com/BangL/taskbar-cat/releases), dann `sudo apt install ./taskbar-cat_*_all.deb`. Selbst bauen: `python3 -m build --wheel && packaging/build-deb.sh`
 - Python-Paket: `pip install .`
 - Aus dem Clone (ohne root): `./install.sh [--autostart|--uninstall]` legt Menü-Eintrag und Icon an; das Startkommando wird automatisch ermittelt
+- Ubuntu 22.04 (GNOME 42, kein PyQt6 im Archiv, `.deb` geht nicht): `sudo apt install python3-pip libxcb-cursor0`, dann im Clone `pip install --user .` (PyQt6 kommt von PyPI) und `./install.sh`. Für GNOME 40-44 richtet die Katze automatisch eine passende Extension-Fassung ein
 
 Autostart lässt sich jederzeit über den Haken im Menü der Katze umschalten (`~/.config/autostart/taskbar-cat.desktop`).
 

@@ -4,6 +4,9 @@
 //
 // Gesendet wird nur, solange die Katze läuft; den D-Bus-Namen beobachten wir.
 // Änderungen werden auf einen Tick gebündelt, damit die Shell nicht ruckelt.
+//
+// Für GNOME 40-44 (ohne ES-Module) erzeugt backend/gnome.py aus dieser Datei
+// eine imports.gi-Fassung; Kopfzeilen und Klassenzeile daher nicht umbauen.
 
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
@@ -188,6 +191,17 @@ export default class TaskbarCatSensor extends Extension {
         const mm = monitorManager();
         const workspace = global.workspace_manager.get_active_workspace();
         const out = [];
+        if (typeof mm.get_monitors !== 'function') {
+            // ältere Mutter: keine MetaMonitor-Objekte, also auch keine Anschlussnamen
+            for (let index = 0; index < global.display.get_n_monitors(); index++) {
+                out.push({
+                    name: `Monitor-${index}`,
+                    geometry: rect(global.display.get_monitor_geometry(index)),
+                    workArea: rect(workspace.get_work_area_for_monitor(index)),
+                });
+            }
+            return out;
+        }
         for (const monitor of mm.get_monitors()) {
             if (!monitor.is_active())
                 continue;

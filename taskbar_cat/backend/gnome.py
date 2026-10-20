@@ -8,8 +8,14 @@ Die Fenstergeometrie liefert eine GNOME-Shell-Extension. Sie spricht dasselbe
 D-Bus-Protokoll wie das KWin-Script und wird hier bei Bedarf eingerichtet und
 eingeschaltet. Fehlt sie, läuft die Katze trotzdem - dann nur auf dem Boden der
 Monitore, die Qt meldet.
+
+GNOME 45 hat auf ES-Module umgestellt. Für ältere Shells (40-44) wird aus
+derselben extension.js eine imports.gi-Fassung erzeugt, siehe legacy_extension().
 """
+import json
 import os
+import re
+import subprocess
 import sys
 
 from PyQt6.QtDBus import QDBusInterface, QDBusMessage
@@ -26,6 +32,55 @@ STATE_ENABLED = 1
 STATE_ERROR = 3
 STATE_OUT_OF_DATE = 4
 STATE_ENABLING = 8
+MODULES_SINCE = 45       # ab hier ES-Module, davor imports.gi
+LEGACY_SHELLS = ["40", "41", "42", "43", "44"]
+
+
+def shell_version() -> int | None:
+    """Hauptversion der installierten GNOME Shell, None wenn unbekannt."""
+    try:
+        out = subprocess.run(["gnome-shell", "--version"], capture_output=True,
+                             text=True, timeout=10).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    m = re.search(r"(\d+)\.", out)
+    return int(m.group(1)) if m else None
+
+
+def legacy_extension(js: str, metadata: str) -> dict[str, str]:
+    """extension.js/metadata.json für GNOME 40-44 umschreiben.
+
+    Die Klasse nutzt nichts aus der Basisklasse Extension; es reicht, die
+    Imports zu ersetzen und init() anzuhängen, das die alte Shell aufruft.
+    """
+    lines = js.splitlines()
+    imports = [i for i, line in enumerate(lines) if line.startswith("import ")]
+    head = "export default class TaskbarCatSensor extends Extension {"
+    if not imports or lines.count(head) != 1:
+        raise ValueError("extension.js hat nicht den erwarteten Aufbau")
+    out = []
+    for i, line in enumerate(lines):
+        if i == imports[0]:
+            out.append("const {Gio, GLib, Meta} = imports.gi;")
+        elif i in imports:
+            continue
+        elif line == head:
+            out.append("class TaskbarCatSensor {")
+        else:
+            out.append(line)
+    out += ["", "function init() {", "    return new TaskbarCatSensor();", "}", ""]
+    meta = json.loads(metadata)
+    meta["shell-version"] = LEGACY_SHELLS
+    return {"extension.js": re.sub(r"\n{3,}", "\n\n", "\n".join(out)),
+            "metadata.json": json.dumps(meta, indent=4, ensure_ascii=False) + "\n"}
+
+
+def extension_texts(shell: int | None = None) -> dict[str, str]:
+    """Inhalt der Extension-Dateien passend zur Shell; unbekannt -> aktuelle Fassung."""
+    texts = {name: src.read_text(encoding="utf-8") for name, src in extension_sources().items()}
+    if shell is not None and shell < MODULES_SINCE:
+        return legacy_extension(texts["extension.js"], texts["metadata.json"])
+    return texts
 
 
 class GnomeBackend(Backend):
@@ -44,8 +99,8 @@ class GnomeBackend(Backend):
     # --- Extension einrichten ---
 
     @staticmethod
-    def install_extension() -> bool:
-        """Mitgelieferte Extension nach ~/.local/share kopieren.
+    def install_extension(shell: int | None = None) -> bool:
+        """Mitgelieferte Extension (passend zur Shell-Version) nach ~/.local/share kopieren.
 
         Gibt True zurück, wenn sich dabei etwas geändert hat; der Shell-Code wird
         beim Aktivieren eingelesen, geänderter Code braucht also ein Reload.
@@ -53,8 +108,7 @@ class GnomeBackend(Backend):
         target = extension_dir()
         changed = False
         target.mkdir(parents=True, exist_ok=True)
-        for name, src in extension_sources().items():
-            text = src.read_text(encoding="utf-8")
+        for name, text in extension_texts(shell).items():
             dest = target / name
             if not dest.is_file() or dest.read_text(encoding="utf-8") != text:
                 dest.write_text(text, encoding="utf-8")
@@ -91,8 +145,8 @@ class GnomeBackend(Backend):
     def start_sensor(self) -> None:
         self._hint = None
         try:
-            changed = self.install_extension()
-        except OSError as e:
+            changed = self.install_extension(shell_version())
+        except (OSError, ValueError) as e:
             self._hint = f"Extension nicht eingerichtet: {e}"
             print(f"taskbar-cat: {self._hint}", file=sys.stderr)
             return
@@ -101,7 +155,8 @@ class GnomeBackend(Backend):
             ext.call("ReloadExtension", EXTENSION_UUID)   # alter Code hängt sonst im Cache
         ext.call("EnableExtension", EXTENSION_UUID)
         state = self._state()
-        if state == STATE_UNKNOWN:
+        # vor GNOME 45 lädt ReloadExtension nichts nach, die Shell kennt noch die alte Fassung
+        if state == STATE_UNKNOWN or (changed and state in (STATE_ERROR, STATE_OUT_OF_DATE)):
             self._hint = ("GNOME-Extension eingerichtet, aber noch nicht geladen - bitte einmal "
                           "neu anmelden. Bis dahin läuft die Katze nur auf dem Bildschirmboden.")
         elif state in (STATE_ERROR, STATE_OUT_OF_DATE):

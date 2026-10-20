@@ -1,7 +1,10 @@
 """Backend-Wahl: einmal beim Start, nur aus der Umgebung."""
+import json
+
 import pytest
 
 from taskbar_cat import backend as backends, paths
+from taskbar_cat.backend import gnome
 from taskbar_cat.backend.gnome import GnomeBackend
 from taskbar_cat.backend.kde import KdeBackend
 
@@ -79,3 +82,40 @@ def test_remove_extension(monkeypatch, tmp_path):
 def test_remove_extension_without_install_is_quiet(monkeypatch, tmp_path):
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
     GnomeBackend.remove_extension()
+
+
+def test_legacy_extension_for_old_shells(monkeypatch, tmp_path):
+    """GNOME 40-44 kennt keine ES-Module: imports.gi und init() statt export."""
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    assert GnomeBackend.install_extension(42) is True
+    target = tmp_path / "gnome-shell/extensions" / paths.EXTENSION_UUID
+    js = (target / "extension.js").read_text(encoding="utf-8")
+    assert "import " not in js and "export " not in js
+    assert "imports.gi" in js and "function init()" in js
+    assert json.loads((target / "metadata.json").read_text(encoding="utf-8"))["shell-version"] \
+        == gnome.LEGACY_SHELLS
+    assert GnomeBackend.install_extension(47) is True    # Shell-Update: moderne Fassung zurück
+    assert "export default class" in (target / "extension.js").read_text(encoding="utf-8")
+
+
+def test_unknown_shell_gets_the_modern_extension():
+    assert gnome.extension_texts(None) == gnome.extension_texts(gnome.MODULES_SINCE)
+
+
+def test_legacy_extension_rejects_unexpected_source():
+    with pytest.raises(ValueError):
+        gnome.legacy_extension("// nichts", "{}")
+
+
+def test_shell_version_parses_gnome_shell_output(monkeypatch):
+    class Done:
+        stdout = "GNOME Shell 42.9\n"
+    monkeypatch.setattr(gnome.subprocess, "run", lambda *a, **k: Done())
+    assert gnome.shell_version() == 42
+
+
+def test_shell_version_without_gnome_shell(monkeypatch):
+    def missing(*a, **k):
+        raise FileNotFoundError
+    monkeypatch.setattr(gnome.subprocess, "run", missing)
+    assert gnome.shell_version() is None
